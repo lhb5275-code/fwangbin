@@ -285,7 +285,10 @@ def parse_sec_facts(facts, cutoff=None):
         pd.Timestamp(f["end"])
         for v in gaap.values()
         for f in v.get("units", {}).get("USD", [])
-        if f.get("form") in SEC_FORMS and "start" in f and (not cutoff or f.get("filed", "9999") <= cutoff)
+        if f.get("form") in SEC_FORMS
+        and "start" in f
+        and f["end"] <= f.get("filed", "")  # 미래 기간(리스·계약 일정 등)은 제외
+        and (not cutoff or f.get("filed", "9999") <= cutoff)
     ]
     if not ends:
         raise NoDataError("기준일 이전 SEC 제출 자료 없음 (이후 상장·분사 또는 CIK 변경)" if cutoff else "SEC 재무 자료 없음")

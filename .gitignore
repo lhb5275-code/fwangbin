@@ -1,0 +1,3 @@
+sp500_cache_*.csv
+sp500_last5q_*.xlsx
+__pycache__/

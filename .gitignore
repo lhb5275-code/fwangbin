@@ -4,3 +4,4 @@ __pycache__/
 out/*.log
 russell1000_cache_*.csv
 russell1000_last5q_*.xlsx
+*_asof*_cache_*.csv

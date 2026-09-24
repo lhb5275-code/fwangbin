@@ -16,6 +16,7 @@
     python sp500_last5q.py                 # 전체 S&P 500 수집 (캐시가 있으면 이어서)
     python sp500_last5q.py --tickers AAPL MSFT NVDA JPM   # 일부 종목만 (테스트용)
     python sp500_last5q.py --universe russell1000          # Russell 1000
+    python sp500_last5q.py --as-of 2025-09-24              # 과거 시점 기준 (SEC, 그날까지 제출된 값만 사용)
     python sp500_last5q.py --source sec    # SEC EDGAR 강제 사용
     python sp500_last5q.py --fresh         # 캐시 무시하고 처음부터
 
@@ -225,11 +226,13 @@ def fetch_yahoo(ticker, cik=None, **_):
     return {"dates": dates, "rev": rev, "oi": oi, "note": note}
 
 
-def _sec_periods(tag_facts):
+def _sec_periods(tag_facts, cutoff=None):
     """{(start, end): value} - 10-Q/10-K의 USD 기간값. 같은 기간이 여러 번 나오면 가장 최근 제출값."""
     best = {}
     for f in tag_facts.get("units", {}).get("USD", []):
         if f.get("form") not in SEC_FORMS or "start" not in f:
+            continue
+        if cutoff and f.get("filed", "9999-99-99") > cutoff:  # 기준일 이후 제출된 값은 당시 알 수 없었음
             continue
         key = (pd.Timestamp(f["start"]), pd.Timestamp(f["end"]))
         filed = f.get("filed", "")
@@ -238,13 +241,13 @@ def _sec_periods(tag_facts):
     return {k: v[0] for k, v in best.items()}
 
 
-def sec_quarterly(tag_facts):
+def sec_quarterly(tag_facts, cutoff=None):
     """{분기 종료일: (3개월 값, 산출여부)}.
 
     10-Q에 3개월 값이 직접 있으면 그 값을 쓴다. 없으면(대표적으로 4분기는 10-K에 연간값만 있음)
     같은 회계연도 시작일의 누적(YTD) 값 차이로 구한다: 예) Q4 = 12개월 - 9개월.
     """
-    periods = _sec_periods(tag_facts)
+    periods = _sec_periods(tag_facts, cutoff)
     q = {}
     for (st, en), v in sorted(periods.items()):
         if 80 <= (en - st).days <= 100:
@@ -269,7 +272,7 @@ def sec_quarterly(tag_facts):
     return q
 
 
-def parse_sec_facts(facts):
+def parse_sec_facts(facts, cutoff=None):
     """companyfacts JSON → dict(dates, rev, oi, note)."""
     gaap = facts.get("facts", {}).get("us-gaap", {})
     rev_tag, rev_q = None, {}
@@ -277,13 +280,13 @@ def parse_sec_facts(facts):
     for prio, tag in enumerate(SEC_REV_TAGS):
         if tag not in gaap:
             continue
-        series = sec_quarterly(gaap[tag])
+        series = sec_quarterly(gaap[tag], cutoff)
         if not series:
             continue
         key = (max(series), -prio)
         if best_key is None or key > best_key:
             best_key, rev_tag, rev_q = key, tag, series
-    oi_q = sec_quarterly(gaap[SEC_OI_TAG]) if SEC_OI_TAG in gaap else {}
+    oi_q = sec_quarterly(gaap[SEC_OI_TAG], cutoff) if SEC_OI_TAG in gaap else {}
     if not rev_q and not oi_q:
         raise NoDataError("SEC XBRL에 매출/영업이익 태그 없음")
 
@@ -308,14 +311,14 @@ def parse_sec_facts(facts):
     return {"dates": dates, "rev": rev, "oi": oi, "note": note}
 
 
-def fetch_sec(ticker, cik=None, user_agent=SEC_DEFAULT_UA):
+def fetch_sec(ticker, cik=None, user_agent=SEC_DEFAULT_UA, cutoff=None):
     if cik is None or (isinstance(cik, float) and np.isnan(cik)):
         raise NoDataError("CIK 없음")
     resp = requests.get(SEC_FACTS_URL.format(cik=int(cik)), headers={"User-Agent": user_agent}, timeout=60)
     if resp.status_code == 404:
         raise NoDataError(f"SEC companyfacts 없음 (CIK {int(cik)})")
     resp.raise_for_status()
-    return parse_sec_facts(resp.json())
+    return parse_sec_facts(resp.json(), cutoff)
 
 
 FETCHERS = {"yahoo": fetch_yahoo, "sec": fetch_sec}
@@ -541,7 +544,9 @@ def autofit(ws, formats, min_w=6, max_w=60):
         ws.column_dimensions[get_column_letter(col)].width = min(max(w + 2, min_w), max_w)
 
 
-def write_excel(rows, universe_size, failed, missing, collected_at, path, source, universe_src, dup_classes=()):
+def write_excel(
+    rows, universe_size, failed, missing, collected_at, path, source, universe_src, dup_classes=(), as_of=None
+):
     wb = Workbook()
     ws = wb.active
     ws.title = "실적"
@@ -588,6 +593,14 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path, source
     bold = Font(bold=True)
     ok_count = sum(1 for r in rows if r["status"] in ("ok", "partial"))
     memo.append(["데이터 출처", SOURCE_DESC[source]])
+    if as_of:
+        memo.append(
+            [
+                "데이터 기준일",
+                f"{as_of} 시점 (point-in-time): 이날까지 SEC에 제출된 10-Q/10-K 값만 사용. "
+                "이후 정정·재작성된 수치와 이후 발표된 분기는 반영하지 않음. 종목 구성은 수집일 현재 S&P 500",
+            ]
+        )
     memo.append(["종목 리스트 출처", universe_src])
     memo.append(["수집 일시", collected_at])
     memo.append(["수집 성공 / 전체", f"{ok_count} / {universe_size}"])
@@ -726,6 +739,10 @@ def main():
     ap.add_argument("--fresh", action="store_true", help="기존 캐시 CSV를 지우고 처음부터 수집")
     ap.add_argument("--outdir", default=".", help="출력/캐시 디렉터리 (기본: 현재 디렉터리)")
     ap.add_argument("--source", choices=["auto", "yahoo", "sec"], default="auto", help="데이터 소스 (기본 auto)")
+    ap.add_argument(
+        "--as-of",
+        help="과거 기준일(YYYY-MM-DD). 이 날까지 SEC에 제출된 10-Q/10-K 값만으로 '당시 최근 5개 분기'를 구성 (SEC 소스 강제)",
+    )
     ap.add_argument("--universe", choices=list(UNIVERSE_LABEL), default="sp500", help="대상 지수 (기본 sp500)")
     ap.add_argument(
         "--sec-user-agent",
@@ -735,20 +752,29 @@ def main():
     args = ap.parse_args()
 
     source = args.source
-    if source == "auto":
+    if args.as_of:
+        args.as_of = pd.Timestamp(args.as_of).strftime("%Y-%m-%d")
+        if source == "yahoo":
+            ap.error("--as-of 는 제출일 기록이 있는 SEC 소스만 지원합니다")
+        source = "sec"
+        print(f"기준일 {args.as_of}: SEC EDGAR에서 그날까지 제출된 값만 사용")
+    elif source == "auto":
         print("Yahoo Finance 접속 확인 중...")
         source = "yahoo" if yahoo_reachable() else "sec"
         print(f"  → 데이터 소스: {source}" + ("" if source == "yahoo" else " (Yahoo 접속 불가, SEC EDGAR로 대체)"))
     fetch_kw = {}
     if source == "sec":
         fetch_kw["user_agent"] = args.sec_user_agent
+        if args.as_of:
+            fetch_kw["cutoff"] = args.as_of
         if args.sec_user_agent == SEC_DEFAULT_UA:
             print("  ! SEC는 연락처가 담긴 User-Agent를 요구합니다. 403이 나오면 SEC_USER_AGENT='이름 이메일' 을 설정하세요.")
 
     today = datetime.now(KST).strftime("%Y%m%d")
     os.makedirs(args.outdir, exist_ok=True)
-    cache_path = os.path.join(args.outdir, f"{args.universe}_cache_{source}_{today}.csv")
-    out_path = os.path.join(args.outdir, f"{args.universe}_last5q_{today}.xlsx")
+    prefix = args.universe + (f"_asof{args.as_of.replace('-', '')}" if args.as_of else "")
+    cache_path = os.path.join(args.outdir, f"{prefix}_cache_{source}_{today}.csv")
+    out_path = os.path.join(args.outdir, f"{prefix}_last5q_{today}.xlsx")
     if args.fresh and os.path.exists(cache_path):
         os.remove(cache_path)
 
@@ -785,7 +811,9 @@ def main():
     attach_business(rows)
     failed = [(r["ticker"], r["name"], r["error"]) for r in rows if r["status"] == "failed"]
     missing = [(r["ticker"], r["name"], m) for r in rows if (m := describe_missing(r))]
-    write_excel(rows, len(universe), failed, missing, collected_at, out_path, source, universe_src, dup_classes)
+    write_excel(
+        rows, len(universe), failed, missing, collected_at, out_path, source, universe_src, dup_classes, args.as_of
+    )
 
     print_verification(rows, source)
 

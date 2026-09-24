@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>타액선 3D 아틀라스</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#E8ECF0;
+  --bg-deep:#D5DDE5;
+  --panel:rgba(252,253,254,.92);
+  --ink:#17202B;
+  --muted:#556072;
+  --line:#C6CFD9;
+  --chip:#EDF1F5;
+  --parotid:#7E62C4;
+  --submandibular:#23857A;
+  --sublingual:#C9661F;
+  --minor:#BF3F6B;
+  --nerve:#A98612;
+  --muscle:#A8433A;
+  --shadow:0 10px 40px rgba(30,45,70,.14);
+  --serif:"Gowun Batang","Nanum Myeongjo","Apple SD Gothic Neo",serif;
+  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0D1219; --bg-deep:#06090D; --panel:rgba(20,27,37,.9); --ink:#E4E9F0; --muted:#98A3B3;
+    --line:#2A3544; --chip:#1D2632;
+    --parotid:#A48CEB; --submandibular:#4CC0B0; --sublingual:#F29A55; --minor:#EE7AA0; --nerve:#E3C24A; --muscle:#E07A6F;
+    --shadow:0 10px 40px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0D1219; --bg-deep:#06090D; --panel:rgba(20,27,37,.9); --ink:#E4E9F0; --muted:#98A3B3;
+  --line:#2A3544; --chip:#1D2632;
+  --parotid:#A48CEB; --submandibular:#4CC0B0; --sublingual:#F29A55; --minor:#EE7AA0; --nerve:#E3C24A; --muscle:#E07A6F;
+  --shadow:0 10px 40px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{
+  background:radial-gradient(120% 90% at 70% 40%, var(--bg) 0%, var(--bg-deep) 100%) fixed;
+  background-color:var(--bg);
+  color:var(--ink);
+  font:15px/1.65 var(--sans);
+}
+#stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab}
+#stage.hot{cursor:pointer}
+#stage.drag{cursor:grabbing}
+
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:5;
+  display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:10px 20px;
+  padding:calc(env(safe-area-inset-top,0px) + 14px) 20px 0;
+  pointer-events:none;
+}
+.brand{pointer-events:auto}
+.brand h1{font:700 21px/1.2 var(--serif);margin:0;letter-spacing:-.01em}
+.brand p{margin:2px 0 0;font:500 11px/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.layers{pointer-events:auto;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.layers label{
+  display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;
+  background:var(--panel);border:1px solid var(--line);font-size:12.5px;cursor:pointer;user-select:none;
+}
+.layers input{accent-color:var(--ink);margin:0}
+.layers button{
+  font:inherit;font-size:12.5px;padding:5px 10px;border-radius:999px;border:1px solid var(--line);
+  background:transparent;color:var(--ink);cursor:pointer;
+}
+.layers label:focus-within,.layers button:focus-visible,.rail button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+.rail{
+  position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:4;
+  display:flex;flex-direction:column;gap:4px;
+}
+.rail button{
+  display:flex;align-items:center;justify-content:flex-end;gap:10px;background:none;border:0;cursor:pointer;
+  color:var(--muted);font:500 12px/1 var(--sans);padding:6px 0;
+}
+.rail button i{width:10px;height:10px;border-radius:50%;border:1.5px solid currentColor;display:block;transition:transform .2s}
+.rail button span{opacity:.0;transition:opacity .2s}
+.rail:hover button span,.rail button.on span{opacity:1}
+.rail button.on{color:var(--ink)}
+.rail button.on i{background:var(--c,var(--ink));border-color:var(--c,var(--ink));transform:scale(1.3)}
+
+main{position:relative;z-index:2;pointer-events:none}
+section{
+  min-height:100vh;display:flex;align-items:center;
+  padding-block:110px 60px;padding-inline:clamp(16px,4vw,56px);
+}
+.card{
+  pointer-events:auto;width:min(410px,100%);
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+  padding:22px 24px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+.eyebrow{display:flex;align-items:center;gap:8px;font:500 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.eyebrow b{width:9px;height:9px;border-radius:50%;background:var(--c,var(--ink));display:block}
+.card h2{font:700 27px/1.25 var(--serif);margin:10px 0 2px;text-wrap:balance;letter-spacing:-.01em}
+.card h2 small{display:block;font:400 14px/1.4 var(--serif);color:var(--muted);margin-top:4px;letter-spacing:0}
+.card p{margin:12px 0 0;max-width:62ch}
+.card ul{margin:10px 0 0;padding-left:1.1em}
+.card li+li{margin-top:4px}
+.facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.facts span{font:500 12px/1 var(--mono);padding:6px 8px;border-radius:6px;background:var(--chip);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.facts span em{font-style:normal;color:var(--muted);margin-right:5px;font-family:var(--sans);font-size:11.5px}
+.hint{margin-top:16px;padding-top:12px;border-top:1px dashed var(--line);font-size:13px;color:var(--muted);display:grid;gap:4px}
+.hint kbd{font:500 11px/1 var(--mono);padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--chip);color:var(--ink);margin-right:6px}
+.term{font-family:var(--mono);font-size:.86em;color:var(--muted)}
+
+.wide .card{width:min(640px,100%)}
+.tablewrap{overflow-x:auto;margin-top:14px}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:13px}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}
+thead th{font:600 12.5px/1.3 var(--sans);border-bottom:1.5px solid var(--ink)}
+thead th i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:6px}
+tbody th{font-weight:500;color:var(--muted);white-space:nowrap;font-size:12px}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.foot{font-size:12px;color:var(--muted);margin-top:10px}
+
+#tip{
+  position:fixed;z-index:10;left:0;top:0;width:min(330px,calc(100vw - 32px));
+  background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);
+  padding:14px 16px;pointer-events:none;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  font-size:13.5px;line-height:1.55;
+}
+#tip h3{margin:0;font:700 17px/1.3 var(--serif);display:flex;align-items:center;gap:8px}
+#tip h3 b{width:10px;height:10px;border-radius:50%;background:var(--c);flex:none}
+#tip .en{font:400 11.5px/1.3 var(--mono);color:var(--muted);margin-top:2px}
+#tip .facts{margin-top:10px}
+#tip .facts span{font-size:11px;padding:5px 7px}
+#tip h4{margin:12px 0 4px;font:600 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+#tip ul{margin:0;padding-left:1.1em}
+#tip li+li{margin-top:3px}
+
+#nogl{position:fixed;inset:auto 16px 16px 16px;z-index:9;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+
+@media (max-width:819px){
+  .rail{display:none}
+  section{align-items:flex-end;padding-block:120px 24px}
+  .card{max-height:48vh;overflow:auto;padding:18px}
+  .card h2{font-size:23px}
+  .topbar{padding-inline:16px}
+  .layers{justify-content:flex-start}
+}
+@media (prefers-reduced-motion:reduce){
+  .rail button i,.rail button span{transition:none}
+}
+</style>
+
+<canvas id="stage" aria-label="타액선 3차원 모델. 드래그하여 회전하고, 구조 위에 커서를 올리면 기능 설명이 나타납니다."></canvas>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>타액선 3D 아틀라스</h1>
+    <p>Anatomy of Salivary Glands</p>
+  </div>
+  <div class="layers" role="group" aria-label="표시할 구조">
+    <label><input type="checkbox" id="lyr-skin" checked> 피부·귀</label>
+    <label><input type="checkbox" id="lyr-muscle" checked> 근육</label>
+    <label><input type="checkbox" id="lyr-nerve" checked> 안면신경</label>
+    <label><input type="checkbox" id="lyr-bone" checked> 뼈·치아</label>
+    <button type="button" id="reset">시점 초기화</button>
+  </div>
+</header>
+
+<nav class="rail" aria-label="타액선 이동">
+  <button type="button" data-go="0"><span>전체 구조</span><i></i></button>
+  <button type="button" data-go="1" style="--c:var(--parotid)"><span>이하선</span><i></i></button>
+  <button type="button" data-go="2" style="--c:var(--submandibular)"><span>악하선</span><i></i></button>
+  <button type="button" data-go="3" style="--c:var(--sublingual)"><span>설하선</span><i></i></button>
+  <button type="button" data-go="4" style="--c:var(--minor)"><span>소타액선</span><i></i></button>
+  <button type="button" data-go="5"><span>비교표</span><i></i></button>
+</nav>
+
+<main>
+  <section id="overview">
+    <article class="card">
+      <div class="eyebrow"><b></b>Salivary gland system</div>
+      <h2>타액선계의 구성<small>대타액선 3쌍과 약 800여 개의 소타액선</small></h2>
+      <p>인체의 타액선계는 <strong>이하선</strong>, <strong>악하선</strong>, <strong>설하선</strong>과 구순·구개·협점막 등에 있는 <strong>소타액선</strong>으로 이루어진다. 대타액선은 활성화된 상피가 아래의 중배엽으로 함입(invagination)되어 발생하며, 분비부와 도관부로 구성된다.</p>
+      <p>신경 지배는 일반 내장 구심성 신경과 함께 교감신경, 부교감신경이 분포한다.</p>
+      <div class="hint">
+        <div><kbd>스크롤</kbd>타액선별로 시점이 이동합니다</div>
+        <div><kbd>드래그</kbd>모델을 회전합니다</div>
+        <div><kbd>커서</kbd>구조 위에 올리면 주요 기능이 나타납니다</div>
+      </div>
+    </article>
+  </section>
+
+  <section id="parotid">
+    <article class="card" style="--c:var(--parotid)">
+      <div class="eyebrow"><b></b>대타액선 · 1</div>
+      <h2>이하선<small>Parotid gland</small></h2>
+      <p>대타액선 중 가장 크며, 피부 밑에 있는 <strong>피라미드형</strong> 선이다. 치밀한 섬유조직 피막에 싸여 있고 많은 근막중격(fascial septa)에 의해 여러 소엽(lobule)으로 나뉜다.</p>
+      <p>제7뇌신경(안면신경)의 말초가지들이 선 실질을 지나가므로 임상적으로 늘 주의가 필요하다.</p>
+      <p>도관인 <strong>스텐센관</strong>은 교근 위를 지나 협근을 뚫고, 상악 제2대구치 협면 근처의 유두에 개구한다.</p>
+      <div class="facts">
+        <span><em>무게</em>≈ 25 g</span>
+        <span><em>도관</em>Stensen 5 cm · ⌀3 mm</span>
+        <span><em>분비</em>장액성</span>
+      </div>
+    </article>
+  </section>
+
+  <section id="submandibular">
+    <article class="card" style="--c:var(--submandibular)">
+      <div class="eyebrow"><b></b>대타액선 · 2</div>
+      <h2>악하선<small>Submandibular gland</small></h2>
+      <p>하악각의 전내방, 악설골근 밑에서 하악골과 <strong>악이복근의 전·후 양복 사이</strong>에 놓인 호두만한 혼합선이다. 주위 조직과 잘 분리된 근막낭에 싸여 있고 크기와 형태가 다양하다.</p>
+      <p><strong>심부</strong>는 악설골근 후연을 돌아 <strong>천부</strong>와 연결된다. <strong>와르톤관</strong>은 심부에서 시작해 혀 밑을 따라 앞으로 달려 설소대 양쪽의 설하소구에 개구한다.</p>
+      <div class="facts">
+        <span><em>무게</em>7–10 g</span>
+        <span><em>도관</em>Wharton's duct</span>
+        <span><em>분비</em>혼합성</span>
+      </div>
+    </article>
+  </section>
+
+  <section id="sublingual">
+    <article class="card" style="--c:var(--sublingual)">
+      <div class="eyebrow"><b></b>대타액선 · 3</div>
+      <h2>설하선<small>Sublingual gland</small></h2>
+      <p>대타액선 중 가장 작고, 사람에 따라 크기와 형태가 가장 다양하다. 경계가 불분명한 낭으로 싸여 있으며 악설골근 위, 혀 밑 점막 아래에 놓인다.</p>
+      <p>8–20개의 작은 <strong>리비누스관</strong>은 설하추벽으로 개구하고, 주 선관인 <strong>바르톨린관</strong>은 와르톤관으로 합류한다. 혼합형이지만 대부분 점액성 분비조직이다.</p>
+      <div class="facts">
+        <span><em>무게</em>3–4 g</span>
+        <span><em>도관</em>Rivinus ×8–20 · Bartholin</span>
+        <span><em>분비</em>주로 점액성</span>
+      </div>
+    </article>
+  </section>
+
+  <section id="minor">
+    <article class="card" style="--c:var(--minor)">
+      <div class="eyebrow"><b></b>소타액선</div>
+      <h2>소타액선<small>Minor salivary glands</small></h2>
+      <p>구강 여러 부위에 <strong>약 800여 개</strong>가 흩어져 있으며 점액물질이 풍부한 타액을 분비한다.</p>
+      <ul>
+        <li>혀 표면의 <strong>설선</strong>, 구순 점막의 <strong>구순선</strong></li>
+        <li>협점막의 <strong>협선</strong>, 경구개·연구개의 <strong>구개선</strong></li>
+        <li>유곽유두의 구(sulcus)에 도관이 열리는 <strong>von Ebner 장액선</strong></li>
+      </ul>
+      <div class="facts">
+        <span><em>개수</em>≈ 800</span>
+        <span><em>분비</em>주로 점액성</span>
+        <span><em>예외</em>von Ebner = 장액성</span>
+      </div>
+    </article>
+  </section>
+
+  <section id="compare" class="wide">
+    <article class="card">
+      <div class="eyebrow"><b></b>Summary</div>
+      <h2>한눈에 비교하기</h2>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th></th>
+              <th style="--c:var(--parotid)"><i></i>이하선</th>
+              <th style="--c:var(--submandibular)"><i></i>악하선</th>
+              <th style="--c:var(--sublingual)"><i></i>설하선</th>
+              <th style="--c:var(--minor)"><i></i>소타액선</th></tr>
+          </thead>
+          <tbody>
+            <tr><th>무게</th><td class="num">≈ 25 g</td><td class="num">7–10 g</td><td class="num">3–4 g</td><td>약 800여 개</td></tr>
+            <tr><th>도관</th><td>스텐센관<br><span class="term">5 cm · ⌀3 mm</span></td><td>와르톤관</td><td>리비누스관 8–20개<br>바르톨린관</td><td>짧은 개별 도관</td></tr>
+            <tr><th>개구부</th><td>상악 제2대구치 협면 유두</td><td>설하소구</td><td>설하추벽 / 와르톤관</td><td>점막 표면, 유곽유두 구</td></tr>
+            <tr><th>분비 형태</th><td>장액성</td><td>혼합성</td><td>주로 점액성</td><td>주로 점액성<br>(von Ebner 장액성)</td></tr>
+            <tr><th>안정 시 분비량</th><td class="num">≈ 20%</td><td class="num">≈ 65%</td><td class="num">≈ 7–8%</td><td class="num">&lt; 10%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="foot">안정 시(비자극) 분비량 비율은 일반적인 생리학 교재의 대략적인 값입니다. 자극 시에는 이하선의 비율이 약 50%까지 높아집니다.</p>
+    </article>
+  </section>
+</main>
+
+<div id="tip" hidden></div>
+<div id="nogl" hidden>이 브라우저에서 WebGL을 사용할 수 없어 3D 모델을 표시하지 못했습니다. 다른 브라우저에서 열어 보세요.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ---------- 기능 설명 (hover 툴팁) ---------- */
+const INFO = {
+  parotid:{name:"이하선",en:"Parotid gland",c:"--parotid",facts:["≈ 25 g","장액성","피라미드형"],
+    fn:["아밀라아제(프티알린)가 풍부한 묽은 장액성 타액을 분비해 전분 소화를 시작한다",
+        "음식을 씹을 때 분비가 크게 늘어 자극 시 전체 타액의 약 절반을 차지한다",
+        "중탄산염으로 구강 내 산을 완충하고 음식물 찌꺼기를 씻어낸다",
+        "부교감: 설인신경(IX) → 이신경절 → 이개측두신경"]},
+  stensen:{name:"스텐센관",en:"Stensen's (parotid) duct",c:"--parotid",facts:["길이 ≈ 5 cm","내경 ≈ 3 mm"],
+    fn:["이하선에서 만든 장액성 타액을 구강으로 운반한다",
+        "교근 위를 지나 협근을 뚫고 상악 제2대구치 맞은편 협점막 유두에 개구한다",
+        "벽에 섬유조직과 평활근이 있어 타액 배출을 돕는다"]},
+  papilla:{name:"이하선 유두",en:"Parotid papilla",c:"--parotid",facts:["상악 제2대구치 협면"],
+    fn:["스텐센관의 구강 개구부",
+        "상악 대구치 협면에 타액을 직접 공급해 치면을 적신다"]},
+  submandibular:{name:"악하선",en:"Submandibular gland",c:"--submandibular",facts:["7–10 g","혼합성","호두 크기"],
+    fn:["안정 시(비자극) 타액의 약 65%를 담당하는 주된 분비선이다",
+        "장액과 점액이 섞인 타액으로 구강 점막을 촉촉하게 유지한다",
+        "뮤신이 음식물을 감싸 저작·연하를 돕고, 맛 물질을 녹여 미각을 돕는다",
+        "부교감: 안면신경(VII) 고삭신경 → 악하신경절"]},
+  wharton:{name:"와르톤관",en:"Wharton's (submandibular) duct",c:"--submandibular",facts:["심부에서 기시","설하소구에 개구"],
+    fn:["악하선 타액을 혀 밑을 따라 앞쪽으로 운반한다",
+        "설소대 양쪽의 설하소구에서 구강저로 타액을 내보낸다",
+        "바르톨린관(설하선)이 이곳으로 합류한다"]},
+  caruncle:{name:"설하소구",en:"Sublingual caruncle",c:"--submandibular",facts:["설소대 양쪽"],
+    fn:["와르톤관(과 바르톨린관)의 개구부",
+        "하악 전치부 설측으로 타액이 모이는 곳이다"]},
+  sublingual:{name:"설하선",en:"Sublingual gland",c:"--sublingual",facts:["3–4 g","주로 점액성","가장 작음"],
+    fn:["점액(뮤신)이 풍부한 끈적한 타액을 분비한다",
+        "음식물을 뭉쳐 식괴(bolus)를 만들고 삼키기 쉽게 한다",
+        "구강 점막을 코팅해 마찰과 건조로부터 보호한다",
+        "안정 시 타액의 약 7–8%를 차지한다"]},
+  rivinus:{name:"리비누스관",en:"Ducts of Rivinus",c:"--sublingual",facts:["8–20개","설하추벽에 개구"],
+    fn:["설하선의 작은 선관들로, 타액을 설하추벽을 따라 여러 곳으로 직접 내보낸다"]},
+  bartholin:{name:"바르톨린관",en:"Bartholin's duct",c:"--sublingual",facts:["설하선 주 선관"],
+    fn:["설하선의 주 선관으로 와르톤관에 합류해 설하소구로 타액을 보낸다"]},
+  minor_labial:{name:"구순선",en:"Labial glands",c:"--minor",facts:["소타액선","점액성"],
+    fn:["입술 안쪽 점막을 적셔 발음과 입술 움직임을 부드럽게 한다",
+        "점액층이 점막을 건조와 자극으로부터 보호한다"]},
+  minor_buccal:{name:"협선",en:"Buccal glands",c:"--minor",facts:["소타액선","혼합·점액성"],
+    fn:["뺨 안쪽 점막을 지속적으로 적셔 저작 시 마찰을 줄인다",
+        "점막 표면의 보호막(salivary pellicle) 형성에 기여한다"]},
+  minor_palatal:{name:"구개선",en:"Palatal glands",c:"--minor",facts:["경구개 후방·연구개","순수 점액성"],
+    fn:["경구개 후방과 연구개에서 점액을 분비해 연하 시 식괴가 잘 미끄러지게 한다",
+        "의치 사용자에서 의치 유지(흡착)에 도움을 준다"]},
+  minor_lingual:{name:"설선",en:"Lingual glands",c:"--minor",facts:["혀끝 아래·혀 뒤쪽","점액성"],
+    fn:["혀 표면과 혀 아랫면을 적셔 혀의 움직임과 발음을 돕는다",
+        "혀뿌리 쪽 점액은 연하 시 윤활 작용을 한다"]},
+  vonebner:{name:"von Ebner 장액선",en:"Glands of von Ebner",c:"--minor",facts:["유곽유두 구에 개구","장액성"],
+    fn:["유곽유두 주위 도랑(구)을 씻어내 미뢰가 새로운 맛 자극을 느낄 수 있게 한다",
+        "설 리파아제(lingual lipase)를 분비해 지방 소화를 시작한다",
+        "소타액선 중 예외적인 순수 장액선이다"]},
+  facial:{name:"안면신경",en:"Facial nerve (CN VII)",c:"--nerve",facts:["제7뇌신경","측두·관골·협·하악연·경부 가지"],
+    fn:["경유돌공을 나와 이하선 속에서 다섯 갈래로 나뉘어 표정근을 지배한다",
+        "이하선 실질을 관통하므로 이하선 수술·질환 시 안면신경 손상 위험이 있다",
+        "이하선 자체의 분비는 지배하지 않는다(설인신경 담당)"]},
+  masseter:{name:"교근",en:"Masseter muscle",c:"--muscle",facts:["저작근"],
+    fn:["하악을 올려 씹는 힘을 낸다","스텐센관이 이 근육의 바깥면을 가로질러 지나간다"]},
+  buccinator:{name:"협근",en:"Buccinator muscle",c:"--muscle",facts:["표정근"],
+    fn:["뺨을 치아 쪽으로 눌러 음식이 협측 전정에 고이지 않게 한다","스텐센관이 이 근육을 관통해 구강으로 들어간다"]},
+  mylohyoid:{name:"악설골근",en:"Mylohyoid muscle",c:"--muscle",facts:["구강저"],
+    fn:["구강저를 이루며 연하 시 혀와 설골을 들어 올린다",
+        "위에는 설하선, 아래에는 악하선 천부가 놓이는 경계이다"]},
+  digastric:{name:"악이복근",en:"Digastric muscle",c:"--muscle",facts:["전복·후복"],
+    fn:["입을 벌리고 설골을 올린다","전·후 양복 사이 삼각(악하삼각)에 악하선이 위치한다"]},
+  mandible:{name:"하악골",en:"Mandible",c:"--muted",facts:["하악각 · 하악지"],
+    fn:["악하선은 하악각 전내방, 이하선은 하악지 뒤·바깥쪽에 위치한다"]},
+  tongue:{name:"혀",en:"Tongue",c:"--minor",facts:["설선 · von Ebner선"],
+    fn:["혀 밑 구강저에 설하선과 와르톤관이 지나간다","혀 표면과 유곽유두 주위에 소타액선이 분포한다"]}
+};
+
+const tipEl = document.getElementById("tip");
+const css = (v)=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+function renderTip(key){
+  const d = INFO[key]; if(!d) return;
+  tipEl.style.setProperty("--c", css(d.c));
+  tipEl.innerHTML =
+    '<h3><b></b>'+d.name+'</h3><div class="en">'+d.en+'</div>'+
+    '<div class="facts">'+d.facts.map(f=>'<span>'+f+'</span>').join("")+'</div>'+
+    '<h4>주요 기능</h4><ul>'+d.fn.map(f=>'<li>'+f+'</li>').join("")+'</ul>';
+}
+function placeTip(x,y){
+  const w = tipEl.offsetWidth, h = tipEl.offsetHeight, vw = innerWidth, vh = innerHeight;
+  let left = x + 18, top = y + 18;
+  if(left + w > vw - 12) left = x - w - 18;
+  if(left < 12) left = Math.max(12, Math.min(vw - w - 12, x - w/2));
+  if(top + h > vh - 12) top = Math.max(12, y - h - 18);
+  tipEl.style.transform = "translate("+Math.round(left)+"px,"+Math.round(top)+"px)";
+}
+
+/* ---------- 3D 장면 ---------- */
+if(!window.THREE){ document.getElementById("nogl").hidden = false; return; }
+const THREE = window.THREE;
+const canvas = document.getElementById("stage");
+let renderer;
+try{ renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true}); }
+catch(e){ document.getElementById("nogl").hidden = false; return; }
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4658, 0.8));
+const keyL = new THREE.DirectionalLight(0xffffff, 0.8); keyL.position.set(5,6,5); scene.add(keyL);
+const fillL = new THREE.DirectionalLight(0xffffff, 0.35); fillL.position.set(-5,1,4); scene.add(fillL);
+const rimL = new THREE.DirectionalLight(0xc8d6ff, 0.45); rimL.position.set(-3,3,-6); scene.add(rimL);
+
+const V = (x,y,z)=>new THREE.Vector3(x,y,z);
+const SPH = new THREE.SphereGeometry(1, 20, 14);
+function rng(seed){ return function(){ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+/* 재질: 범주(cat)별로 투명도를 제어하고, 구조(key)별로 하이라이트한다 */
+const cats = {}, keyMats = {}, pick = [];
+function mat(cat, color, o){
+  const m = new THREE.MeshStandardMaterial(Object.assign({color, roughness:0.6, metalness:0, transparent:true}, o||{}));
+  m.userData.cat = cat;
+  (cats[cat] = cats[cat] || []).push(m);
+  return m;
+}
+function tag(obj, key){
+  obj.userData.key = key; pick.push(obj);
+  const list = keyMats[key] = keyMats[key] || [];
+  if(list.indexOf(obj.material) < 0) list.push(obj.material);
+  return obj;
+}
+function blob(parent, p, s, m, key, rot){
+  const mesh = new THREE.Mesh(SPH, m); mesh.position.set(p[0],p[1],p[2]); mesh.scale.set(s[0],s[1],s[2]);
+  if(rot) mesh.rotation.set(rot[0],rot[1],rot[2]);
+  if(key) tag(mesh,key); parent.add(mesh); return mesh;
+}
+function tube(parent, pts, r, m, key, seg){
+  const curve = new THREE.CatmullRomCurve3(pts.map(p=>V(p[0],p[1],p[2])));
+  const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, seg||64, r, 10, false), m);
+  if(key) tag(mesh,key); parent.add(mesh); return mesh;
+}
+function lobes(parent, o){
+  const r = rng(o.seed||1), g = new THREE.Group();
+  g.position.set(o.center[0],o.center[1],o.center[2]); if(o.rot) g.rotation.set(o.rot[0],o.rot[1],o.rot[2]);
+  const inside = o.inside || (p=>p.lengthSq()<1);
+  let n=0, guard=0;
+  while(n<o.count && guard++<o.count*80){
+    const p = V(r()*2-1, r()*2-1, r()*2-1);
+    if(!inside(p)) continue;
+    const s = o.size[0] + (o.size[1]-o.size[0])*r();
+    const mesh = new THREE.Mesh(SPH, o.m);
+    mesh.position.set(p.x*o.radii[0], p.y*o.radii[1], p.z*o.radii[2]);
+    mesh.scale.set(s*(0.82+r()*0.36), s*(0.82+r()*0.36), s*(0.82+r()*0.36));
+    tag(mesh, o.key); g.add(mesh); n++;
+  }
+  parent.add(g); return g;
+}
+function surface(parent, fn, nu, nv, m, key){
+  const pos=[], idx=[];
+  for(let j=0;j<=nv;j++) for(let i=0;i<=nu;i++){ const p = fn(-1+2*i/nu, j/nv); pos.push(p.x,p.y,p.z); }
+  for(let j=0;j<nv;j++) for(let i=0;i<nu;i++){ const a=j*(nu+1)+i, b=a+1, c=a+nu+1, d=c+1; idx.push(a,c,b, b,c,d); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos,3)); geo.setIndex(idx); geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, m); if(key) tag(mesh,key); parent.add(mesh); return mesh;
+}
+
+/* 색 */
+const C = {
+  parotid:0x8B70D2, parDuct:0x5E45A6,
+  sm:0x2E9A8C, smDuct:0x1B6B61,
+  sl:0xDB7A30, slDuct:0xA9531A,
+  minor:0xD2507E, ebner:0xF0A0BC,
+  nerve:0xE5C33A, muscle:0xB2473D, bone:0xE6DDC9, tooth:0xF4F0E6,
+  skin:0xE9B79C, tongue:0xD98A86, mucosa:0xE7A7A2
+};
+
+const M = {
+  skin: mat("skin", C.skin, {opacity:0.12, depthWrite:false, roughness:0.8}),
+  ear: mat("skin", C.skin, {opacity:0.35, depthWrite:false, roughness:0.8}),
+  bone: mat("bone", C.bone, {roughness:0.75}),
+  tooth: mat("bone", C.tooth, {roughness:0.35}),
+  tongue: mat("tongue", C.tongue, {roughness:0.7}),
+  palate: mat("oral", C.mucosa, {side:THREE.DoubleSide, roughness:0.8}),
+  lip: mat("oral", C.mucosa, {roughness:0.7}),
+  masseter: mat("muscle", C.muscle, {roughness:0.65}),
+  buccinator: mat("muscle", C.muscle, {roughness:0.65}),
+  mylohyoid: mat("muscle", C.muscle, {side:THREE.DoubleSide, roughness:0.65}),
+  digastric: mat("muscle", C.muscle, {roughness:0.65}),
+  nerve: mat("nerve", C.nerve, {roughness:0.4, emissive:0x2a2000}),
+  parotid: mat("parotid", C.parotid, {roughness:0.55}),
+  stensen: mat("parotid", C.parDuct, {roughness:0.4}),
+  papilla: mat("parotid", C.parDuct, {roughness:0.4}),
+  sm: mat("submandibular", C.sm, {roughness:0.55}),
+  wharton: mat("submandibular", C.smDuct, {roughness:0.4}),
+  caruncle: mat("submandibular", C.smDuct, {roughness:0.4}),
+  sl: mat("sublingual", C.sl, {roughness:0.55}),
+  rivinus: mat("sublingual", C.slDuct, {roughness:0.4}),
+  bartholin: mat("sublingual", C.slDuct, {roughness:0.4}),
+  mLabial: mat("minor", C.minor, {roughness:0.5}),
+  mBuccal: mat("minor", C.minor, {roughness:0.5}),
+  mPalatal: mat("minor", C.minor, {roughness:0.5}),
+  mLingual: mat("minor", C.minor, {roughness:0.5}),
+  ebner: mat("minor", C.ebner, {roughness:0.45})
+};
+
+const root = new THREE.Group(); scene.add(root);
+
+/* --- 정중부 구조 --- */
+// 피부(두경부 윤곽)
+const skin = blob(root, [0,0.1,-0.05], [1.3,1.55,1.35], M.skin);
+skin.renderOrder = 10;
+const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.7,1.2,32,1,true), M.skin);
+neck.position.set(0,-1.55,-0.3); neck.renderOrder = 10; root.add(neck);
+
+// 하악골 체부
+const archPt = (t)=>[0.7*t, -0.56-0.06*(1-t*t), 0.86-1.26*t*t];
+const mandPts = [[-0.84,-0.7,-0.52]];
+for(let i=0;i<=10;i++) mandPts.push(archPt(-1+i/5));
+mandPts.push([0.84,-0.7,-0.52]);
+tube(root, mandPts, 0.075, M.bone, "mandible", 120);
+// 설골
+tube(root, [[-0.32,-1.02,-0.42],[-0.22,-1.02,-0.22],[0,-1.02,-0.12],[0.22,-1.02,-0.22],[0.32,-1.02,-0.42]], 0.03, M.bone, "mandible");
+
+// 치아
+for(const [y,h] of [[-0.19,1],[-0.37,-1]]){
+  for(let i=0;i<16;i++){
+    const t = (-1 + (i+0.5)/8) * 0.95;
+    const molar = Math.abs(t) > 0.55;
+    const g = new THREE.CylinderGeometry(molar?0.04:0.025, molar?0.036:0.021, 0.11, 10);
+    const tooth = new THREE.Mesh(g, M.tooth);
+    tooth.position.set(0.6*t, y, 0.8-1.1*t*t);
+    root.add(tooth);
+  }
+}
+
+// 혀
+const TONGUE = {c:[0,-0.22,0.15], r:[0.45,0.18,0.62]};
+blob(root, TONGUE.c, TONGUE.r, M.tongue, "tongue");
+function tongueTop(x,z){
+  const q = 1 - (x/TONGUE.r[0])**2 - ((z-TONGUE.c[2])/TONGUE.r[2])**2;
+  return TONGUE.c[1] + TONGUE.r[1]*Math.sqrt(Math.max(0,q));
+}
+
+// 입술
+tube(root, [[-0.5,-0.14,0.55],[-0.3,-0.12,0.82],[0,-0.1,0.93],[0.3,-0.12,0.82],[0.5,-0.14,0.55]], 0.07, M.lip);
+tube(root, [[-0.5,-0.42,0.55],[-0.3,-0.44,0.82],[0,-0.46,0.93],[0.3,-0.44,0.82],[0.5,-0.42,0.55]], 0.07, M.lip);
+
+// 구개
+function palatePt(u,v){
+  const z = 0.7 - 1.2*v;
+  const t = Math.sqrt(Math.max(0,(0.8-z)/1.1));
+  const hw = Math.min(0.6*t-0.07, 0.5);
+  let y = -0.13 + 0.15*(1-u*u)*Math.sin(Math.min(1,v*1.4)*Math.PI*0.5);
+  if(v>0.72) y -= (v-0.72)*0.55;
+  return V(u*hw, y, z);
+}
+surface(root, palatePt, 16, 24, M.palate);
+
+// 악설골근 (구강저)
+function myloPt(u,v){
+  const a = V(0.6*u, -0.6, 0.78-1.1*u*u);
+  const b = V(0, -0.74, 0.7-1.05*Math.abs(u));
+  const p = a.lerp(b, v); p.y -= 0.05*Math.sin(Math.PI*v); return p;
+}
+surface(root, myloPt, 30, 8, M.mylohyoid, "mylohyoid");
+
+/* --- 좌우 대칭 구조 (오른쪽을 만든 뒤 거울 복제) --- */
+const right = new THREE.Group(); root.add(right);
+
+// 하악지
+tube(right, [[0.84,-0.7,-0.52],[0.87,-0.25,-0.56],[0.88,0.18,-0.6]], 0.07, M.bone, "mandible");
+tube(right, [[0.84,-0.3,-0.48],[0.82,-0.05,-0.36],[0.8,0.1,-0.28]], 0.045, M.bone, "mandible");
+
+// 귀
+const ear = new THREE.Mesh(new THREE.TorusGeometry(0.2,0.06,12,40), M.ear);
+ear.position.set(1.22,0.28,-0.74); ear.rotation.y = Math.PI/2; ear.scale.set(1,1.4,1); right.add(ear);
+
+// 근육
+blob(right, [0.97,-0.28,-0.36], [0.055,0.38,0.19], M.masseter, "masseter", [0,0,0.08]);
+blob(right, [0.69,-0.26,0.22], [0.03,0.16,0.27], M.buccinator, "buccinator", [0,-0.3,0]);
+tube(right, [[0.82,-0.05,-0.86],[0.62,-0.5,-0.6],[0.4,-0.85,-0.34],[0.24,-1.0,-0.2]], 0.04, M.digastric, "digastric");
+tube(right, [[0.24,-1.0,-0.2],[0.2,-0.98,0.2],[0.12,-0.88,0.72]], 0.035, M.digastric, "digastric");
+
+// 이하선: 역피라미드 모양의 천엽 + 하악지 뒤의 심엽 + 부이하선
+lobes(right, {center:[0.99,-0.04,-0.55], radii:[0.19,0.48,0.32], count:90, size:[0.06,0.1], m:M.parotid, key:"parotid", seed:11,
+  inside:(p)=>{ const f = 0.45 + 0.55*(p.y+1)/2; return (p.x/f)**2 + (p.z/f)**2 + p.y*p.y < 1; }});
+lobes(right, {center:[0.8,-0.06,-0.74], radii:[0.09,0.28,0.1], count:26, size:[0.05,0.08], m:M.parotid, key:"parotid", seed:12});
+lobes(right, {center:[1.03,0.03,-0.2], radii:[0.05,0.06,0.08], count:7, size:[0.04,0.06], m:M.parotid, key:"parotid", seed:13});
+// 스텐센관: 교근 위 → 협근 관통 → 상악 제2대구치 맞은편 유두
+tube(right, [[1.03,0.01,-0.32],[1.04,0.0,-0.1],[1.0,-0.03,0.06],[0.86,-0.09,0.12],[0.72,-0.15,0.12],[0.61,-0.19,0.1]], 0.022, M.stensen, "stensen");
+blob(right, [0.6,-0.19,0.1], [0.032,0.032,0.032], M.papilla, "papilla");
+
+// 안면신경: 경유돌공 → 이하선 내 분지(pes anserinus) → 5개 가지
+const pes = [0.96,0.0,-0.62];
+tube(right, [[0.78,0.03,-0.86],[0.88,0.02,-0.72],pes], 0.02, M.nerve, "facial");
+[
+  [[1.0,0.2,-0.5],[1.08,0.55,-0.3],[1.02,0.9,-0.12]],
+  [[1.03,0.12,-0.42],[1.1,0.28,-0.06],[1.02,0.36,0.3]],
+  [[1.05,-0.02,-0.42],[1.07,-0.05,0.0],[0.92,-0.1,0.42]],
+  [[1.0,-0.3,-0.52],[0.98,-0.74,-0.34],[0.86,-0.74,0.2],[0.62,-0.72,0.56]],
+  [[0.98,-0.35,-0.6],[0.94,-0.9,-0.56],[0.82,-1.28,-0.42]]
+].forEach(b=>tube(right, [pes].concat(b), 0.013, M.nerve, "facial"));
+
+// 악하선: 천부(악설골근 아래) + 심부(후연을 돌아 위로)
+lobes(right, {center:[0.56,-0.83,-0.24], radii:[0.2,0.15,0.28], count:60, size:[0.055,0.085], m:M.sm, key:"submandibular", seed:21});
+lobes(right, {center:[0.5,-0.62,-0.42], radii:[0.07,0.09,0.06], count:8, size:[0.045,0.06], m:M.sm, key:"submandibular", seed:22});
+lobes(right, {center:[0.44,-0.55,-0.2], radii:[0.07,0.05,0.16], count:14, size:[0.04,0.06], m:M.sm, key:"submandibular", seed:23});
+// 와르톤관
+tube(right, [[0.45,-0.55,-0.1],[0.38,-0.52,0.14],[0.22,-0.5,0.4],[0.11,-0.48,0.58],[0.06,-0.47,0.65]], 0.018, M.wharton, "wharton");
+blob(right, [0.06,-0.465,0.66], [0.03,0.022,0.03], M.caruncle, "caruncle");
+
+// 설하선: 구강저 위, 아치를 따라 길쭉
+const SL = {c:[0.33,-0.56,0.38], rot:-0.46};
+lobes(right, {center:SL.c, radii:[0.075,0.065,0.23], count:34, size:[0.035,0.055], m:M.sl, key:"sublingual", seed:31, rot:[0,SL.rot,0]});
+// 리비누스관: 설하선 윗면에서 설하추벽으로
+for(let i=0;i<10;i++){
+  const k = -0.8 + 1.6*i/9, lz = k*0.2;
+  const x = SL.c[0] + Math.sin(SL.rot)*lz, z = SL.c[2] + Math.cos(SL.rot)*lz;
+  tube(right, [[x,-0.51,z],[x-0.01,-0.47,z],[x-0.02,-0.44,z]], 0.008, M.rivinus, "rivinus", 8);
+}
+// 바르톨린관 → 와르톤관 합류
+tube(right, [[0.25,-0.54,0.54],[0.17,-0.5,0.58],[0.11,-0.48,0.6]], 0.013, M.bartholin, "bartholin", 24);
+
+const left = right.clone(); left.scale.x = -1; root.add(left);
+left.traverse(o=>{ if(o.userData.key) pick.push(o); });
+
+/* --- 소타액선 (InstancedMesh) --- */
+const R = rng(77);
+function scatter(key, m, pts, size){
+  const im = new THREE.InstancedMesh(SPH, m, pts.length), d = new THREE.Object3D();
+  pts.forEach((p,i)=>{ d.position.copy(p); d.scale.setScalar(size*(0.75+R()*0.5)); d.updateMatrix(); im.setMatrixAt(i, d.matrix); });
+  tag(im, key); root.add(im); return im;
+}
+const jit = (a)=> (R()*2-1)*a;
+const labial = [];
+for(const y of [-0.15,-0.41]) for(let i=0;i<24;i++){ const t=-0.85+1.7*R(); labial.push(V(0.46*t+jit(0.01), y+jit(0.035), 0.83-0.7*t*t+jit(0.01))); }
+scatter("minor_labial", M.mLabial, labial, 0.022);
+
+const buccal = [];
+for(const s of [1,-1]) for(let i=0;i<22;i++) buccal.push(V(s*(0.62+jit(0.015)), -0.38+R()*0.26, -0.2+R()*0.58));
+scatter("minor_buccal", M.mBuccal, buccal, 0.022);
+
+const palatal = [];
+for(let i=0;i<70;i++){ const p = palatePt(jit(0.85), 0.42+R()*0.58); p.y -= 0.018; palatal.push(p); }
+scatter("minor_palatal", M.mPalatal, palatal, 0.022);
+
+const lingual = [];
+for(let i=0;i<14;i++){ const x=jit(0.12), z=0.55+R()*0.12; lingual.push(V(x, -0.36+jit(0.02), z)); }           // 혀끝 아래 (Blandin–Nuhn)
+for(const s of [1,-1]) for(let i=0;i<9;i++){ const x=s*(0.28+R()*0.1), z=-0.35+R()*0.25; lingual.push(V(x, tongueTop(x,z)-0.02, z)); } // 혀뿌리 외측
+scatter("minor_lingual", M.mLingual, lingual, 0.02);
+
+// 유곽유두(V자 배열)와 von Ebner선
+const ebner = [];
+const papGeo = new THREE.CylinderGeometry(0.03,0.028,0.02,16);
+for(let i=0;i<9;i++){
+  const k = -1 + 2*i/8, x = 0.27*k, z = -0.29 + 0.22*Math.abs(k), y = tongueTop(x,z);
+  const pap = new THREE.Mesh(papGeo, M.ebner); pap.position.set(x, y+0.004, z); tag(pap,"vonebner"); root.add(pap);
+  for(let j=0;j<3;j++) ebner.push(V(x+jit(0.03), y-0.035, z+jit(0.03)));
+}
+scatter("vonebner", M.ebner, ebner, 0.018);
+
+/* ---------- 섹션별 시점과 초점 ---------- */
+const deg = Math.PI/180;
+const VIEWS = [
+  {t:[0.12,-0.28,0],     az:52,  el:14,  d:6.4, op:{}},
+  {t:[0.9,-0.14,-0.36],  az:90,  el:8,   d:4.4, op:{submandibular:.2, sublingual:.15, minor:.12, bone:.6, tongue:.3, oral:.2}},
+  {t:[0.46,-0.72,-0.16], az:118, el:-30, d:3.7, op:{parotid:.2, sublingual:.3, minor:.12, nerve:.3, muscle:.55, tongue:.5, oral:.3}},
+  {t:[0.16,-0.54,0.3],   az:22,  el:56,  d:3.2, op:{parotid:.12, submandibular:.5, minor:.08, nerve:.12, muscle:.35, bone:.25, tongue:.1, oral:.08, skin:.04}},
+  {t:[0.0,-0.22,0.12],   az:16,  el:44,  d:3.8, op:{parotid:.12, submandibular:.12, sublingual:.15, nerve:.12, muscle:.25, bone:.3, tongue:.6, oral:.45, skin:.04}},
+  {t:[0.0,-0.28,0],      az:-44, el:12,  d:6.4, op:{}}
+];
+const BASE = {parotid:1, submandibular:1, sublingual:1, minor:1, nerve:1, muscle:.85, bone:1, tongue:.9, oral:.7, skin:1};
+const LAYER = {skin:"lyr-skin", muscle:"lyr-muscle", nerve:"lyr-nerve", bone:"lyr-bone"};
+const baseOpacity = new Map();
+Object.keys(cats).forEach(c=>cats[c].forEach(m=>baseOpacity.set(m, m.opacity)));
+
+const sections = Array.from(document.querySelectorAll("main section"));
+const railBtns = Array.from(document.querySelectorAll(".rail button"));
+const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+
+function scrollState(){
+  const mid = scrollY + innerHeight/2;
+  const centers = sections.map(s=>s.offsetTop + s.offsetHeight/2);
+  if(mid <= centers[0]) return {i:0, f:0};
+  for(let i=0;i<centers.length-1;i++){
+    if(mid < centers[i+1]) return {i, f:(mid-centers[i])/(centers[i+1]-centers[i])};
+  }
+  return {i:centers.length-1, f:0};
+}
+const smooth = (a,b,x)=>{ const t=Math.min(1,Math.max(0,(x-a)/(b-a))); return t*t*(3-2*t); };
+
+const cur = {t:V(0.12,-0.28,0), az:52*deg, el:14*deg, d:6.4};
+const user = {az:0, el:0};
+let activeIdx = -1;
+
+function targetState(){
+  const {i,f} = scrollState();
+  const a = VIEWS[i], b = VIEWS[Math.min(i+1, VIEWS.length-1)];
+  const k = smooth(0.2, 0.8, f);
+  const lerp = (x,y)=>x+(y-x)*k;
+  const op = {};
+  Object.keys(BASE).forEach(c=>{ op[c] = lerp(a.op[c] ?? 1, b.op[c] ?? 1) * BASE[c]; });
+  const idx = k < 0.5 ? i : Math.min(i+1, VIEWS.length-1);
+  return {t:V(lerp(a.t[0],b.t[0]), lerp(a.t[1],b.t[1]), lerp(a.t[2],b.t[2])), az:lerp(a.az,b.az)*deg, el:lerp(a.el,b.el)*deg, d:lerp(a.d,b.d), op, idx};
+}
+
+function setActive(idx){
+  if(idx === activeIdx) return; activeIdx = idx;
+  railBtns.forEach((b,i)=>{ b.classList.toggle("on", i===idx); if(i===idx) b.setAttribute("aria-current","true"); else b.removeAttribute("aria-current"); });
+}
+railBtns.forEach(b=>b.addEventListener("click", ()=>{
+  const s = sections[+b.dataset.go];
+  window.scrollTo({top: s.offsetTop + s.offsetHeight/2 - innerHeight/2, behavior: reduce.matches ? "auto" : "smooth"});
+}));
+document.getElementById("reset").addEventListener("click", ()=>{ user.az = 0; user.el = 0; });
+
+/* ---------- 크기 ---------- */
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w/h;
+  if(w >= 820) camera.setViewOffset(w, h, -Math.min(w*0.17, 250), 0, w, h);
+  else camera.setViewOffset(w, h, 0, h*0.17, w, h);
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize); resize();
+
+/* ---------- 포인터: 드래그 회전 + hover 기능 설명 ---------- */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let hoverKey = null, drag = null, lastPointer = null;
+
+function pickAt(x,y){
+  ndc.set(x/innerWidth*2-1, -(y/innerHeight)*2+1);
+  ray.setFromCamera(ndc, camera);
+  const live = pick.filter(o=>{ if(!o.material.visible || o.material.opacity < 0.35) return false; for(let p=o; p; p=p.parent) if(!p.visible) return false; return true; });
+  const hit = ray.intersectObjects(live, false)[0];
+  return hit ? hit.object.userData.key : null;
+}
+function setHover(key, x, y){
+  if(key !== hoverKey){
+    if(hoverKey) (keyMats[hoverKey]||[]).forEach(m=>m.emissive.setHex(m.userData.em||0));
+    hoverKey = key;
+    if(key){
+      (keyMats[key]||[]).forEach(m=>{ if(m.userData.em===undefined) m.userData.em = m.emissive.getHex(); m.emissive.copy(m.color).multiplyScalar(0.45); });
+      renderTip(key); tipEl.hidden = false;
+    } else tipEl.hidden = true;
+    canvas.classList.toggle("hot", !!key);
+  }
+  if(key) placeTip(x, y);
+}
+
+canvas.addEventListener("pointerdown", e=>{
+  drag = {x:e.clientX, y:e.clientY, sx:e.clientX, sy:e.clientY, id:e.pointerId, type:e.pointerType};
+  if(e.pointerType === "mouse") { canvas.setPointerCapture(e.pointerId); canvas.classList.add("drag"); }
+});
+canvas.addEventListener("pointermove", e=>{
+  lastPointer = {x:e.clientX, y:e.clientY};
+  if(drag && drag.id === e.pointerId){
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    user.az -= dx * 0.008;
+    if(drag.type === "mouse") user.el = Math.max(-1.2, Math.min(1.2, user.el + dy*0.006));
+    if(Math.hypot(e.clientX-drag.sx, e.clientY-drag.sy) > 4) setHover(null);
+    return;
+  }
+  if(e.pointerType === "mouse") setHover(pickAt(e.clientX, e.clientY), e.clientX, e.clientY);
+});
+function endDrag(e){
+  if(!drag || drag.id !== e.pointerId) return;
+  const moved = Math.hypot(e.clientX-drag.sx, e.clientY-drag.sy);
+  if(drag.type !== "mouse" && moved < 8) setHover(pickAt(e.clientX, e.clientY), e.clientX, e.clientY);
+  drag = null; canvas.classList.remove("drag");
+}
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", e=>{ drag = null; canvas.classList.remove("drag"); });
+canvas.addEventListener("pointerleave", e=>{ if(e.pointerType === "mouse" && !drag) setHover(null); });
+addEventListener("scroll", ()=>{ if(lastPointer && hoverKey && !drag) setHover(null); }, {passive:true});
+
+/* ---------- 렌더 루프 ---------- */
+function frame(){
+  const T = targetState();
+  setActive(T.idx);
+  const k = reduce.matches ? 1 : 0.09;
+  cur.t.lerp(T.t, k);
+  cur.az += (T.az + user.az - cur.az) * k;
+  cur.el += (Math.max(-1.35, Math.min(1.35, T.el + user.el)) - cur.el) * k;
+  cur.d += (T.d - cur.d) * k;
+  camera.position.set(
+    cur.t.x + cur.d*Math.cos(cur.el)*Math.sin(cur.az),
+    cur.t.y + cur.d*Math.sin(cur.el),
+    cur.t.z + cur.d*Math.cos(cur.el)*Math.cos(cur.az));
+  camera.lookAt(cur.t);
+
+  Object.keys(cats).forEach(c=>{
+    const layerOn = LAYER[c] ? document.getElementById(LAYER[c]).checked : true;
+    const target = layerOn ? (T.op[c] ?? 1) : 0;
+    cats[c].forEach(m=>{
+      const want = baseOpacity.get(m) * target;
+      m.opacity += (want - m.opacity) * (reduce.matches ? 1 : 0.12);
+      m.visible = m.opacity > 0.015;
+      m.depthWrite = c !== "skin" && m.opacity > 0.6;
+    });
+  });
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

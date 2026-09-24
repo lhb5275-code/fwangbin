@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
-"""S&P 500 구성 종목의 최근 5개 분기 매출/영업이익을 Yahoo Finance(yfinance)에서 수집해 Excel로 정리한다.
+"""S&P 500 구성 종목의 최근 5개 분기 매출/영업이익을 수집해 Excel로 정리한다.
+
+데이터 소스 (--source, 기본 auto):
+    yahoo : Yahoo Finance via yfinance (quarterly_income_stmt의 Total Revenue / Operating Income)
+    sec   : SEC EDGAR XBRL companyfacts API (미국 정부 공개 데이터, API 키 불필요)
+            매출 = Revenues 계열 us-gaap 태그, 영업이익 = OperatingIncomeLoss
+    auto  : Yahoo Finance 접속이 되면 yahoo, 안 되면 sec 로 자동 전환
+종목 리스트: Wikipedia "List of S&P 500 companies" → 접속 불가 시 GitHub datasets/s-and-p-500-companies
 
 사용법:
     python sp500_last5q.py                 # 전체 S&P 500 수집 (캐시가 있으면 이어서)
     python sp500_last5q.py --tickers AAPL MSFT NVDA JPM   # 일부 종목만 (테스트용)
+    python sp500_last5q.py --source sec    # SEC EDGAR 강제 사용
     python sp500_last5q.py --fresh         # 캐시 무시하고 처음부터
 
-중간 결과는 sp500_cache_YYYYMMDD.csv 에 종목별로 한 줄씩 추가된다.
+SEC는 연락처가 포함된 User-Agent를 요구한다:
+    SEC_USER_AGENT="홍길동 you@example.com" python sp500_last5q.py --source sec
+
+중간 결과는 sp500_cache_{source}_YYYYMMDD.csv 에 종목별로 한 줄씩 추가된다.
 중단 후 다시 실행하면 이미 성공(ok/partial)한 종목은 건너뛰고, 실패한 종목만 다시 시도한다.
 """
 
@@ -23,12 +34,32 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 WIKI_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+GITHUB_SP500_CSV = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+YAHOO_PROBE_URL = "https://query2.finance.yahoo.com/v8/finance/chart/AAPL?range=1d&interval=1d"
+SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_DEFAULT_UA = "sp500-last5q research script (set SEC_USER_AGENT to 'Name email')"
+# 매출 태그 우선순위 (같은 최신 분기를 가진 태그가 여럿이면 앞쪽 태그 사용)
+SEC_REV_TAGS = [
+    "Revenues",
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
+    "SalesRevenueNet",
+    "RevenuesNetOfInterestExpense",
+]
+SEC_OI_TAG = "OperatingIncomeLoss"
+SEC_FORMS = {"10-Q", "10-K", "10-Q/A", "10-K/A", "10-QT", "10-KT"}
+BROWSER_UA = {"User-Agent": "Mozilla/5.0 (sp500-last5q script)"}
+SOURCE_DESC = {
+    "yahoo": "Yahoo Finance via yfinance (yf.Ticker(t).quarterly_income_stmt: Total Revenue / Operating Income)",
+    "sec": "SEC EDGAR XBRL companyfacts API (data.sec.gov) - 매출: us-gaap Revenues 계열 태그, "
+    "영업이익: us-gaap OperatingIncomeLoss, 10-Q/10-K 제출값",
+}
 N_Q = 5
 MAX_RETRIES = 3
 Q_LABELS = ["Q0", "Q-1", "Q-2", "Q-3", "Q-4"]
@@ -36,7 +67,7 @@ VERIFY_TICKERS = ["AAPL", "MSFT", "NVDA", "JPM"]
 KST = timezone(timedelta(hours=9))
 
 CACHE_FIELDS = (
-    ["ticker", "name", "status", "error"]
+    ["ticker", "name", "status", "error", "note"]
     + [f"date_{i}" for i in range(N_Q)]
     + [f"rev_{i}" for i in range(N_Q)]
     + [f"oi_{i}" for i in range(N_Q)]
@@ -44,20 +75,43 @@ CACHE_FIELDS = (
 
 
 # --------------------------------------------------------------------------- 1. 종목 리스트
-def get_sp500_list():
-    """Wikipedia 표에서 (기업명, Yahoo 티커) 리스트를 가져온다."""
-    headers = {"User-Agent": "Mozilla/5.0 (sp500-last5q script)"}
-    resp = requests.get(WIKI_URL, headers=headers, timeout=30)
-    resp.raise_for_status()
-    tables = pd.read_html(StringIO(resp.text), attrs={"id": "constituents"})
-    df = tables[0]
+def _normalize_universe(df):
     out = pd.DataFrame(
         {
             "name": df["Security"].astype(str).str.strip(),
             "ticker": df["Symbol"].astype(str).str.strip().str.replace(".", "-", regex=False),
+            "cik": pd.to_numeric(df["CIK"], errors="coerce") if "CIK" in df else np.nan,
         }
     )
     return out.drop_duplicates("ticker").reset_index(drop=True)
+
+
+def get_sp500_list():
+    """(기업명, Yahoo 티커, CIK) 리스트와 출처 설명을 반환한다. Wikipedia → GitHub 순으로 시도."""
+    try:
+        resp = requests.get(WIKI_URL, headers=BROWSER_UA, timeout=30)
+        resp.raise_for_status()
+        df = pd.read_html(StringIO(resp.text), attrs={"id": "constituents"})[0]
+        return _normalize_universe(df), WIKI_URL
+    except Exception as e:  # noqa: BLE001
+        print(f"  Wikipedia 접속 실패 ({type(e).__name__}) → GitHub 공개 데이터셋 사용")
+    resp = requests.get(GITHUB_SP500_CSV, timeout=30)
+    resp.raise_for_status()
+    df = pd.read_csv(StringIO(resp.text))
+    return _normalize_universe(df), f"{GITHUB_SP500_CSV} (Wikipedia 표 미러, Wikipedia 접속 불가로 대체)"
+
+
+def get_sec_cik_map(user_agent):
+    resp = requests.get(SEC_TICKERS_URL, headers={"User-Agent": user_agent}, timeout=30)
+    resp.raise_for_status()
+    return {v["ticker"].upper().replace(".", "-"): (int(v["cik_str"]), v["title"]) for v in resp.json().values()}
+
+
+def yahoo_reachable():
+    try:
+        return requests.get(YAHOO_PROBE_URL, headers=BROWSER_UA, timeout=10).status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
 
 
 # --------------------------------------------------------------------------- 2. 데이터 수집
@@ -65,12 +119,18 @@ def _row(stmt, label):
     return stmt.loc[label] if label in stmt.index else None
 
 
-def fetch_quarters(ticker):
+class NoDataError(Exception):
+    """재시도해도 의미 없는 '데이터 없음' 오류."""
+
+
+def fetch_yahoo(ticker, cik=None, **_):
     """yfinance에서 최근 5개 분기 매출/영업이익을 가져온다.
 
-    반환: dict(dates, rev, oi) - 각 길이 N_Q, 없는 값은 NaN/None.
+    반환: dict(dates, rev, oi, note) - 각 길이 N_Q, 없는 값은 NaN/None.
     데이터가 비어 있으면 예외를 던져 재시도 대상으로 만든다.
     """
+    import yfinance as yf
+
     stmt = yf.Ticker(ticker).quarterly_income_stmt
     if stmt is None or stmt.empty:
         raise RuntimeError("quarterly_income_stmt 가 비어 있음")
@@ -90,18 +150,117 @@ def fetch_quarters(ticker):
             dates.append(None)
             rev.append(np.nan)
             oi.append(np.nan)
-    return {"dates": dates, "rev": rev, "oi": oi, "has_oi_row": oi_row is not None}
+    return {"dates": dates, "rev": rev, "oi": oi, "note": ""}
+
+
+def _sec_periods(tag_facts):
+    """{(start, end): value} - 10-Q/10-K의 USD 기간값. 같은 기간이 여러 번 나오면 가장 최근 제출값."""
+    best = {}
+    for f in tag_facts.get("units", {}).get("USD", []):
+        if f.get("form") not in SEC_FORMS or "start" not in f:
+            continue
+        key = (pd.Timestamp(f["start"]), pd.Timestamp(f["end"]))
+        filed = f.get("filed", "")
+        if key not in best or filed > best[key][1]:
+            best[key] = (float(f["val"]), filed)
+    return {k: v[0] for k, v in best.items()}
+
+
+def sec_quarterly(tag_facts):
+    """{분기 종료일: (3개월 값, 산출여부)}.
+
+    10-Q에 3개월 값이 직접 있으면 그 값을 쓴다. 없으면(대표적으로 4분기는 10-K에 연간값만 있음)
+    같은 회계연도 시작일의 누적(YTD) 값 차이로 구한다: 예) Q4 = 12개월 - 9개월.
+    """
+    periods = _sec_periods(tag_facts)
+    q = {}
+    for (st, en), v in sorted(periods.items()):
+        if 80 <= (en - st).days <= 100:
+            q.setdefault(en, (v, False))
+    by_start = {}
+    for (st, en), v in periods.items():
+        by_start.setdefault(st, []).append((en, v))
+    for st, lst in by_start.items():
+        lst.sort()
+        for (e1, v1), (e2, v2) in zip(lst, lst[1:]):
+            if e2 not in q and 80 <= (e2 - e1).days <= 100 and (e2 - st).days <= 380:
+                q[e2] = (v2 - v1, True)
+    # 직전 누적값이 없으면: 누적값 - 같은 기간 안의 나머지 분기 합 (예: 연간 - (Q1+Q2+Q3))
+    for (st, en), v in sorted(periods.items(), key=lambda kv: kv[0][1]):
+        span = (en - st).days
+        if en in q or not 170 <= span <= 380:
+            continue
+        need = round(span / 91) - 1
+        inner = [val for e, (val, _) in q.items() if st < e < en and (e - st).days >= 80]
+        if len(inner) == need:
+            q[en] = (v - sum(inner), True)
+    return q
+
+
+def parse_sec_facts(facts):
+    """companyfacts JSON → dict(dates, rev, oi, note)."""
+    gaap = facts.get("facts", {}).get("us-gaap", {})
+    rev_tag, rev_q = None, {}
+    best_key = None
+    for prio, tag in enumerate(SEC_REV_TAGS):
+        if tag not in gaap:
+            continue
+        series = sec_quarterly(gaap[tag])
+        if not series:
+            continue
+        key = (max(series), -prio)
+        if best_key is None or key > best_key:
+            best_key, rev_tag, rev_q = key, tag, series
+    oi_q = sec_quarterly(gaap[SEC_OI_TAG]) if SEC_OI_TAG in gaap else {}
+    if not rev_q and not oi_q:
+        raise NoDataError("SEC XBRL에 매출/영업이익 태그 없음")
+
+    grid = sorted(set(rev_q) | set(oi_q), reverse=True)[:N_Q]
+    dates, rev, oi, derived = [], [], [], []
+    for k in range(N_Q):
+        if k >= len(grid):
+            dates.append(None)
+            rev.append(np.nan)
+            oi.append(np.nan)
+            continue
+        d = grid[k]
+        dates.append(d.strftime("%Y-%m-%d"))
+        for series, out, label in ((rev_q, rev, "매출"), (oi_q, oi, "영업이익")):
+            v, is_derived = series.get(d, (np.nan, False))
+            out.append(v)
+            if is_derived:
+                derived.append(f"{label} {Q_LABELS[k]}")
+    note = f"매출태그={rev_tag or '없음'}"
+    if derived:
+        note += "; 누적값 차감으로 산출: " + ", ".join(derived)
+    return {"dates": dates, "rev": rev, "oi": oi, "note": note}
+
+
+def fetch_sec(ticker, cik=None, user_agent=SEC_DEFAULT_UA):
+    if cik is None or (isinstance(cik, float) and np.isnan(cik)):
+        raise NoDataError("CIK 없음")
+    resp = requests.get(SEC_FACTS_URL.format(cik=int(cik)), headers={"User-Agent": user_agent}, timeout=60)
+    if resp.status_code == 404:
+        raise NoDataError(f"SEC companyfacts 없음 (CIK {int(cik)})")
+    resp.raise_for_status()
+    return parse_sec_facts(resp.json())
+
+
+FETCHERS = {"yahoo": fetch_yahoo, "sec": fetch_sec}
 
 
 def polite_sleep():
     time.sleep(random.uniform(0.5, 1.0))
 
 
-def fetch_with_retry(ticker):
+def fetch_with_retry(fetcher, ticker, **kw):
     last_err = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            return fetch_quarters(ticker), None
+            return fetcher(ticker, **kw), None
+        except NoDataError as e:
+            polite_sleep()
+            return None, f"NoData: {e}"
         except Exception as e:  # noqa: BLE001 - 네트워크/파싱 오류 모두 재시도
             last_err = f"{type(e).__name__}: {e}"
             print(f"    [{ticker}] 시도 {attempt}/{MAX_RETRIES} 실패 - {last_err}")
@@ -130,23 +289,23 @@ def append_cache(path, rec):
         w.writerow(rec)
 
 
-def collect(universe, cache_path):
+def collect(universe, cache_path, fetcher, **fetch_kw):
     cache = load_cache(cache_path)
     total = len(universe)
-    for i, (name, ticker) in enumerate(zip(universe["name"], universe["ticker"]), 1):
+    for i, (name, ticker, cik) in enumerate(zip(universe["name"], universe["ticker"], universe["cik"]), 1):
         cached = cache.get(ticker)
         if cached is not None and cached["status"] in ("ok", "partial"):
             continue
         print(f"[{i}/{total}] {ticker} ({name})")
-        data, err = fetch_with_retry(ticker)
+        data, err = fetch_with_retry(fetcher, ticker, cik=cik, **fetch_kw)
         rec = {"ticker": ticker, "name": name}
         if data is None:
-            rec.update(status="failed", error=err)
+            rec.update(status="failed", error=err, note="")
         else:
             complete = all(d is not None for d in data["dates"]) and not any(
                 np.isnan(v) for v in data["rev"] + data["oi"]
             )
-            rec.update(status="ok" if complete else "partial", error="")
+            rec.update(status="ok" if complete else "partial", error="", note=data["note"])
             for k in range(N_Q):
                 rec[f"date_{k}"] = data["dates"][k]
                 rec[f"rev_{k}"] = data["rev"][k]
@@ -196,6 +355,7 @@ def build_table(universe, cache):
             "ticker": ticker,
             "status": r.get("status", "failed"),
             "error": r.get("error") if isinstance(r.get("error"), str) else "",
+            "note": r.get("note") if isinstance(r.get("note"), str) else "",
             "dates": dates,
             "rev": rev,
             "oi": oi,
@@ -254,7 +414,7 @@ def autofit(ws, formats, min_w=6, max_w=60):
         ws.column_dimensions[get_column_letter(col)].width = min(max(w + 2, min_w), max_w)
 
 
-def write_excel(rows, universe_size, failed, missing, collected_at, path):
+def write_excel(rows, universe_size, failed, missing, collected_at, path, source, universe_src):
     wb = Workbook()
     ws = wb.active
     ws.title = "실적"
@@ -295,8 +455,8 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path):
     memo = wb.create_sheet("메모")
     bold = Font(bold=True)
     ok_count = sum(1 for r in rows if r["status"] in ("ok", "partial"))
-    memo.append(["데이터 출처", "Yahoo Finance via yfinance (yf.Ticker(t).quarterly_income_stmt)"])
-    memo.append(["종목 리스트 출처", WIKI_URL])
+    memo.append(["데이터 출처", SOURCE_DESC[source]])
+    memo.append(["종목 리스트 출처", universe_src])
     memo.append(["수집 일시", collected_at])
     memo.append(["수집 성공 / 전체", f"{ok_count} / {universe_size}"])
     memo.append(["단위", "매출·영업이익: 백만 달러(USD mn), 성장률: %"])
@@ -334,11 +494,19 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path):
     memo.append([])
     memo.append(["기업별 실제 분기 종료일"])
     memo.cell(memo.max_row, 1).font = bold
-    memo.append(["티커", "기업명"] + [f"{q} 종료일" for q in Q_LABELS])
+    memo.append(["티커", "기업명"] + [f"{q} 종료일" for q in Q_LABELS] + ["비고"])
     for c in memo[memo.max_row]:
         c.font = bold
     for r in sorted(rows, key=lambda x: x["ticker"]):
-        memo.append([r["ticker"], r["name"]] + [d or "" for d in r["dates"]])
+        memo.append([r["ticker"], r["name"]] + [d or "" for d in r["dates"]] + [r["note"]])
+    if source == "sec":
+        memo.insert_rows(7)
+        memo["A7"] = "SEC 데이터 참고"
+        memo["A7"].font = bold
+        memo["B7"] = (
+            "4분기 등 3개월 값이 직접 공시되지 않은 분기는 같은 회계연도 누적값 차이(예: 연간-9개월)로 구함(비고란 표시). "
+            "Yahoo의 Total Revenue와 정의가 다를 수 있음(특히 금융사). 분기 종료일은 회사 회계기준일 그대로."
+        )
     autofit(memo, {}, max_w=80)
 
     wb.save(path)
@@ -375,17 +543,21 @@ def _fmt_p(v):
     return "" if np.isnan(v) else f"{v * 100:.1f}%"
 
 
-def print_verification(rows):
+def print_verification(rows, source):
     by_t = {r["ticker"]: r for r in rows}
+    where = {
+        "yahoo": "Yahoo Finance > Financials > Income Statement > Quarterly",
+        "sec": "SEC EDGAR 10-Q/10-K 손익계산서 (Yahoo Finance와도 대조 가능)",
+    }[source]
     print("\n" + "=" * 78)
-    print("검증용 값 (단위: 백만$) - Yahoo Finance > Financials > Income Statement > Quarterly 와 대조")
+    print(f"검증용 값 (단위: 백만$) - {where} 와 대조")
     print("=" * 78)
     for t in VERIFY_TICKERS:
         r = by_t.get(t)
         if r is None:
             print(f"\n{t}: 대상 목록에 없음")
             continue
-        print(f"\n{t} - {r['name']}  (status: {r['status']})")
+        print(f"\n{t} - {r['name']}  (status: {r['status']})" + (f"  [{r['note']}]" if r["note"] else ""))
         print(f"  {'분기':<5}{'종료일':<12}{'매출':>14}{'영업이익':>14}")
         for k in range(N_Q):
             print(f"  {Q_LABELS[k]:<6}{r['dates'][k] or '-':<14}{_fmt_m(r['rev'][k]):>14}{_fmt_m(r['oi'][k]):>16}")
@@ -399,36 +571,62 @@ def main():
     ap.add_argument("--tickers", nargs="+", help="전체 대신 이 티커들만 수집 (Yahoo 형식, 예: BRK-B)")
     ap.add_argument("--fresh", action="store_true", help="기존 캐시 CSV를 지우고 처음부터 수집")
     ap.add_argument("--outdir", default=".", help="출력/캐시 디렉터리 (기본: 현재 디렉터리)")
+    ap.add_argument("--source", choices=["auto", "yahoo", "sec"], default="auto", help="데이터 소스 (기본 auto)")
+    ap.add_argument(
+        "--sec-user-agent",
+        default=os.environ.get("SEC_USER_AGENT", SEC_DEFAULT_UA),
+        help="SEC 요청용 User-Agent ('이름 이메일' 형식 권장, 환경변수 SEC_USER_AGENT)",
+    )
     args = ap.parse_args()
+
+    source = args.source
+    if source == "auto":
+        print("Yahoo Finance 접속 확인 중...")
+        source = "yahoo" if yahoo_reachable() else "sec"
+        print(f"  → 데이터 소스: {source}" + ("" if source == "yahoo" else " (Yahoo 접속 불가, SEC EDGAR로 대체)"))
+    fetch_kw = {}
+    if source == "sec":
+        fetch_kw["user_agent"] = args.sec_user_agent
+        if args.sec_user_agent == SEC_DEFAULT_UA:
+            print("  ! SEC는 연락처가 담긴 User-Agent를 요구합니다. 403이 나오면 SEC_USER_AGENT='이름 이메일' 을 설정하세요.")
 
     today = datetime.now(KST).strftime("%Y%m%d")
     os.makedirs(args.outdir, exist_ok=True)
-    cache_path = os.path.join(args.outdir, f"sp500_cache_{today}.csv")
+    cache_path = os.path.join(args.outdir, f"sp500_cache_{source}_{today}.csv")
     out_path = os.path.join(args.outdir, f"sp500_last5q_{today}.xlsx")
     if args.fresh and os.path.exists(cache_path):
         os.remove(cache_path)
 
-    print("S&P 500 종목 리스트 가져오는 중 (Wikipedia)...")
-    universe = get_sp500_list()
+    print("S&P 500 종목 리스트 가져오는 중...")
+    universe, universe_src = get_sp500_list()
     if args.tickers:
         wanted = [t.upper().replace(".", "-") for t in args.tickers]
         sub = universe[universe["ticker"].isin(wanted)]
         extra = [t for t in wanted if t not in set(sub["ticker"])]
-        universe = pd.concat([sub, pd.DataFrame({"name": extra, "ticker": extra})], ignore_index=True)
+        extra_df = pd.DataFrame({"name": extra, "ticker": extra, "cik": np.nan})
+        if extra and source == "sec":
+            try:
+                cmap = get_sec_cik_map(args.sec_user_agent)
+                extra_df["cik"] = [cmap.get(t, (np.nan,))[0] for t in extra]
+                extra_df["name"] = [cmap.get(t, (None, t))[1] for t in extra]
+            except Exception as e:  # noqa: BLE001
+                print(f"  SEC 티커→CIK 매핑 실패: {e}")
+        universe = pd.concat([sub, extra_df], ignore_index=True)
     print(f"대상 종목: {len(universe)}개  |  캐시: {cache_path}")
 
-    cache = collect(universe, cache_path)
+    cache = collect(universe, cache_path, FETCHERS[source], **fetch_kw)
     collected_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
 
     rows = build_table(universe, cache)
     failed = [(r["ticker"], r["name"], r["error"]) for r in rows if r["status"] == "failed"]
     missing = [(r["ticker"], r["name"], m) for r in rows if (m := describe_missing(r))]
-    write_excel(rows, len(universe), failed, missing, collected_at, out_path)
+    write_excel(rows, len(universe), failed, missing, collected_at, out_path, source, universe_src)
 
-    print_verification(rows)
+    print_verification(rows, source)
 
     ok = len(universe) - len(failed)
     print("\n" + "=" * 78)
+    print(f"데이터 소스: {SOURCE_DESC[source]}")
     print(f"수집 성공: {ok} / {len(universe)} 종목  (데이터 일부 누락: {len(missing)}개)")
     print(f"최종 실패 티커 ({len(failed)}개): {', '.join(t for t, _, _ in failed) or '없음'}")
     print(f"Excel 저장: {out_path}")

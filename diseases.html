@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>body{margin:0}</style>
+</head>
+<body>
+<title>타액선 질환 마인드맵</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#EAEEF2; --surface:#FBFCFD; --ink:#17202B; --muted:#586374; --line:#C7D0DA; --chip:#EEF2F6;
+  --viral:#2F74B5; --bact:#C2531D; --react:#7B55C7; --cyst:#1F8A80;
+  --root:#17202B; --shadow:0 12px 40px rgba(30,45,70,.16);
+  --serif:"Gowun Batang","Nanum Myeongjo",serif;
+  --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0E131A; --surface:#161D27; --ink:#E4E9F0; --muted:#9AA5B5; --line:#2B3645; --chip:#1E2733;
+    --viral:#6AA8E6; --bact:#EE8A55; --react:#AC8CF0; --cyst:#4FC2B6; --root:#E4E9F0;
+    --shadow:0 12px 40px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0E131A; --surface:#161D27; --ink:#E4E9F0; --muted:#9AA5B5; --line:#2B3645; --chip:#1E2733;
+  --viral:#6AA8E6; --bact:#EE8A55; --react:#AC8CF0; --cyst:#4FC2B6; --root:#E4E9F0;
+  --shadow:0 12px 40px rgba(0,0,0,.5);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans)}
+.page{max-width:1180px;margin:0 auto;padding-inline:clamp(16px,3vw,32px);padding-block:28px 48px}
+header h1{font:700 clamp(24px,3.2vw,32px)/1.25 var(--serif);margin:0;text-wrap:balance}
+header p{margin:6px 0 0;color:var(--muted);max-width:70ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:14px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:50%;background:var(--c);display:block}
+.legend .sup{font:500 10.5px/1 var(--mono);padding:3px 5px;border-radius:4px;border:1px dashed var(--muted);color:var(--muted)}
+
+.mapwrap{margin-top:22px;overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.map{position:relative;width:1040px;margin:0 auto}
+.map svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.map svg path{fill:none;stroke-width:2;stroke-linecap:round}
+.node{position:absolute;transform:translateY(-50%);border-radius:10px;font:inherit;color:inherit;text-align:left}
+.n-root{left:24px;width:170px;padding:14px 16px;background:var(--root);color:var(--surface)}
+.n-root b{display:block;font:700 17px/1.35 var(--serif)}
+.n-root small{display:block;margin-top:4px;font:400 10.5px/1.4 var(--mono);opacity:.75;letter-spacing:.04em}
+.n-cat{width:170px;padding:10px 12px;background:var(--surface);border:2px solid var(--c)}
+.n-cat b{display:block;font:700 15px/1.3 var(--serif);color:var(--c)}
+.n-cat small{display:block;font:400 10.5px/1.3 var(--mono);color:var(--muted);margin-top:2px}
+.n-sub{width:150px;padding:7px 11px;background:var(--chip);border:1px solid var(--line)}
+.n-sub b{display:block;font:600 13.5px/1.3 var(--sans);color:var(--c)}
+.n-sub small{display:block;font:400 10.5px/1.3 var(--mono);color:var(--muted)}
+button.leaf{
+  width:290px;padding:9px 12px 9px 14px;background:var(--surface);border:1px solid var(--line);
+  cursor:pointer;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;
+  box-shadow:0 1px 0 var(--line);transition:border-color .15s, box-shadow .15s, transform .15s;
+}
+button.leaf::before{content:"";position:absolute;left:-1px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--c)}
+button.leaf b{font:600 14.5px/1.3 var(--sans)}
+button.leaf small{grid-column:1;font:400 11px/1.3 var(--mono);color:var(--muted)}
+button.leaf .tags{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+button.leaf .tags span{font:500 10.5px/1 var(--sans);padding:3px 6px;border-radius:4px;background:var(--chip);color:var(--muted)}
+button.leaf .cam{grid-column:2;grid-row:1 / span 2;font:500 10.5px/1 var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:3px 5px}
+button.leaf:hover,button.leaf.on{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent)}
+button.leaf:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+#tip{
+  position:fixed;z-index:20;left:0;top:0;width:min(420px,calc(100vw - 32px));max-height:min(80vh,720px);overflow:auto;
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+  padding:16px 18px 18px;font-size:13.5px;line-height:1.6;
+}
+#tip.pinned{border-color:var(--c)}
+#tip .crumb{font:500 10.5px/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--c)}
+#tip h2{margin:4px 0 0;font:700 20px/1.3 var(--serif);text-wrap:balance}
+#tip .en{font:400 11.5px/1.3 var(--mono);color:var(--muted);margin-top:2px}
+#tip .close{position:absolute;top:10px;right:10px;border:1px solid var(--line);background:var(--chip);color:var(--ink);border-radius:6px;font:500 12px/1 var(--sans);padding:5px 8px;cursor:pointer}
+#tip .pinhint{font-size:11.5px;color:var(--muted);margin-top:8px}
+figure{margin:12px 0 0}
+figure .ph{position:relative;border-radius:8px;overflow:hidden;background:var(--chip);border:1px solid var(--line);aspect-ratio:4/3;max-width:100%}
+figure img{display:block;width:100%;height:100%;object-fit:cover}
+figure .fallback{position:absolute;inset:0;display:grid;place-content:center;gap:6px;text-align:center;padding:12px;font-size:12.5px;color:var(--muted)}
+figure figcaption{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.45}
+figure a,#tip a{color:var(--c)}
+.nophoto{margin-top:12px;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;font-size:12.5px;color:var(--muted)}
+#tip h3{margin:14px 0 4px;display:flex;align-items:center;gap:8px;font:600 11px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+#tip h3::after{content:"";flex:1;height:1px;background:var(--line)}
+#tip ul{margin:0;padding-left:1.1em}
+#tip li+li{margin-top:3px}
+.sup{display:inline-block;vertical-align:1px;margin-left:4px;font:500 9.5px/1 var(--mono);padding:2px 4px;border-radius:3px;border:1px dashed var(--muted);color:var(--muted)}
+
+.note{margin-top:14px;font-size:12.5px;color:var(--muted);max-width:80ch}
+@media (max-width:700px){ .page{padding-block:20px 32px} }
+@media (prefers-reduced-motion:reduce){ button.leaf{transition:none} }
+</style>
+
+<div class="page">
+  <header>
+    <h1>타액선의 감염성 · 염증성 · 반응성 질환</h1>
+    <p>질환 카드에 커서를 올리면 증상, 감별법, 치료법과 임상사진이 나타납니다. 클릭하면 카드가 고정되어 링크를 누를 수 있습니다.</p>
+    <div class="legend">
+      <span style="--c:var(--viral)"><i></i>바이러스 감염</span>
+      <span style="--c:var(--bact)"><i></i>박테리아 감염</span>
+      <span style="--c:var(--react)"><i></i>염증성·반응성</span>
+      <span style="--c:var(--cyst)"><i></i>점액성 낭성 병소</span>
+      <span><em class="sup">보충</em> 교재 밖 일반 지식으로 보충한 항목</span>
+    </div>
+  </header>
+
+  <div class="mapwrap">
+    <div class="map" id="map"><svg id="links" aria-hidden="true"></svg></div>
+  </div>
+  <p class="note">임상사진은 Wikimedia Commons에서 찾은 자료이며 각 사진 아래 파일 페이지 링크에서 저작자와 라이선스를 확인할 수 있습니다. 사진을 불러오지 못하는 환경에서는 원본 링크가 대신 표시됩니다.</p>
+</div>
+
+<div id="tip" hidden role="dialog" aria-live="polite"></div>
+
+<script>
+(function(){
+"use strict";
+const S = (t)=>({t, sup:true});           // 교재 밖 보충 항목
+const FP = (f)=>"https://commons.wikimedia.org/wiki/Special:FilePath/"+encodeURIComponent(f)+"?width=640";
+const FPAGE = (f)=>"https://commons.wikimedia.org/wiki/File:"+encodeURIComponent(f.replace(/ /g,"_"));
+
+const TREE = {
+  id:"root", name:"타액선 질환", en:"Infectious · Inflammatory · Reactive",
+  children:[
+    {id:"inf", name:"감염성 질환", en:"Infectious diseases", c:"--viral", children:[
+      {id:"viral", name:"바이러스 감염", en:"Viral infection", c:"--viral", children:["mumps","cmv"]},
+      {id:"bact", name:"박테리아 감염", en:"Bacterial infection", c:"--bact", children:["abs","cbs"]}
+    ]},
+    {id:"react", name:"염증성·반응성 질환", en:"Inflammatory & reactive", c:"--react", children:["allergic","nsm"]},
+    {id:"cyst", name:"점액성 낭성 병소", en:"Mucous cysts", c:"--cyst", children:["mucocele","mrc","ranula"]}
+  ]
+};
+
+const D = {
+  mumps:{name:"유행성 이하선염", en:"Epidemic parotitis · Mumps", crumb:"감염성 › 바이러스", c:"--viral",
+    tags:["Paramyxovirus","5–9세 호발","양측성"],
+    photo:{file:"Mumps PHIL 130 lores.jpg", cap:"유행성 이하선염으로 이하선이 부어오른 소아 (CDC PHIL)"},
+    sx:["미약한 발열, 권태, 식욕부진과 함께 급성 타액선 종창","대부분 이하선에 생기며 화농성 삼출물 없이 보통 양측성, 한쪽이 1–2일 먼저 부어오름",
+        "팽대된 선은 압통이 있고 신 음식을 먹을 때 통증","약 10%는 이하선 없이 악하선만 팽대, 타액선관 개구부 주위 염증",
+        "합병증: 뇌막염, 뇌염이 흔하고 청각소실, 심근염, 갑상선염, 고환염, 부고환염, 췌장염, 난소염도 보고됨"],
+    dx:["5–9세에 50%, 90%가 14세 이전 발병. 봄·겨울에 많음","급성 비화농성 타액선염이 있으면 반드시 감별해야 함",
+        "개구부에 화농성 삼출물이 없고 양측성인 점이 세균성 이하선염과 다름",
+        S("혈청 IgM 항체, 협점막·타액 PCR로 확인하며 혈청 아밀라아제가 오를 수 있음")],
+    tx:["환자의 건강상태를 유지시키는 대증 치료","백신(MMR) 접종에 의한 예방이 최선책","대부분 자기한정성으로 1주일 이내 팽대가 소실",
+        "반복적으로 재발하면 속발성 만성 세균성 타액선염을 의심 (특히 어린이)"]},
+  cmv:{name:"거대세포봉입체질환", en:"Cytomegalic inclusion disease · CMV", crumb:"감염성 › 바이러스", c:"--viral",
+    tags:["Herpesvirus","신생아·면역억제"],
+    photo:{file:"CMV encephalitis owl eye inclusions HE stain.jpg", cap:"CMV 감염 세포의 ‘올빼미 눈’ 핵내 봉입체 (H&E, 뇌 조직 예시)"},
+    sx:["신생아·유아: 전신적으로 진행하여 치명적일 수 있음. 간·폐·중추신경계 병발이 흔함",
+        "치유된 어린이도 지적능력 감소, 발작(seizures) 등 영구적 중추신경계 후유증 가능",
+        "성인: 잠복 바이러스의 재활성화. 면역억제제 투여, 백혈병·림프종 환자에서 호발",
+        "성인은 급성 폐렴이 가장 흔하고, 간·심장·말초신경과 타액선에도 증상 유발"],
+    dx:["혈액, 타액, 뇨 검체에서 바이러스 배양","수평 감염(수혈, 이식, 성적 접촉)과 수직 감염(선천성) 병력 확인",
+        "정상 성인도 상당수가 CMV 혈청 항체를 가지고 있어 항체만으로는 판단이 어려움",
+        S("조직검사에서 커다란 핵내 봉입체(owl's eye)를 가진 거대세포가 특징")],
+    tx:["면역 기능이 정상이면 대증 치료","면역 기능이 저하된 환자는 집중적인 항바이러스 치료",
+        S("대표 약물: ganciclovir, valganciclovir")]},
+  abs:{name:"급성 세균성 타액선염", en:"Acute bacterial sialadenitis", crumb:"감염성 › 박테리아", c:"--bact",
+    tags:["S. aureus","평균 70세","편측성 80–90%"],
+    photo:{file:"Parotid duct papillae.JPG", cap:"진단 시 압박하는 스텐센관 개구부(이하선 유두)의 정상 모습 — 참고 사진"},
+    sx:["80–90%에서 편측성의 급작스런 통증","귀 부위의 발적된 종창이 단단하게 촉진되고 하악각 부위로 파급",
+        "개구·저작 시 통증이 심해짐","염증이 이하선낭 안에 갇히면 통증이 훨씬 심하고 선이 팽대, 압통, 피부 발적, 발열",
+        "전신적으로 체온 상승, 백혈구 증가"],
+    dx:["스텐센관 개구부를 압박했을 때 화농성 삼출물이 나오면 확진","급성기 타액선 조영술은 금기",
+        "방선균증의 화농성 삼출물에서는 황과립(sulfur granule)이 보이므로 감별 필요",
+        "나이 든 쇠약 환자, 수술 후, 탈수, 불량한 구강위생 등 기여요인 확인"],
+    tx:["쇠약 환자에서 치명적일 수 있어 적극적으로 치료","화농 삼출물을 즉시 배양, 감수성 검사로 항생제를 정하고 완전 소실까지 투여",
+        "심하면 페니실린 내성 포도상구균에 맞는 항생제를 즉시 다량 주사하고 결과에 따라 변경",
+        "수분 공급과 전해질 균형, 사탕·과즙으로 타액 분비를 촉진해 배농",
+        "빨리 호전되지 않으면 외과적 배농 — 안면신경 손상에 주의"]},
+  cbs:{name:"만성 세균성 타액선염", en:"Chronic (recurrent) bacterial sialadenitis", crumb:"감염성 › 박테리아", c:"--bact",
+    tags:["재발성","소아 3–5세","특발성"],
+    sx:["과거 비슷한 병력이 있는 환자에서 하악각 부위의 급성 편측성 종창","수일–수개월 지속되며 간헐적 악화와 호전을 반복",
+        "균의 독성이 낮아 급성기보다 덜 특징적이고 통증도 미약. 발열·백혈구 증가가 뚜렷하지 않음",
+        "재발이 반복되면 선 실질의 섬유증으로 타액량 감소"],
+    dx:["스텐센관 개구부로 화농성 삼출물이 나오는 경우가 있어 바이러스·알레르기성 이하선염과 감별에 도움",
+        "타액선 조영상에서 타액선 확장증(sialectasis)",
+        "원인: 스텐센관 상피의 이형성으로 점액분비세포가 생겨 관이 막힌다는 설명. 소아 원인균은 녹색연쇄상구균, 대장균, 변형균, 폐렴구균"],
+    tx:["확실한 치료법은 없음. 전신 항생제와 항생제를 이용한 도관 세정(ductal irrigation)","항생제로 1주일 정도면 치료됨",
+        "오래 지속되면 이하선 완전 적출(parotidectomy)을 고려하나 안면마비 위험이 있어 신중히 결정",
+        "어린이는 보존적 치료가 좋고 대개 사춘기에 소실. 만성에서는 조영제 주입이 배농을 촉진하기도 함"]},
+  allergic:{name:"알레르기성 타액선염", en:"Allergic sialadenitis", crumb:"염증성·반응성", c:"--react",
+    tags:["약물 유발","양측 이하선","자기한정성"],
+    sx:["약물이나 알레르겐에 의한 타액선(주로 이하선) 팽대",
+        "Sulfisoxazole(요로감염 치료) 투여 후 양측성 이하선 팽대",
+        "Phenothiazine 투여 후 수 시간 안에 이하선 급성 종창, 결막염, 피부발진",
+        "방사선 불투과성 조영제 주사나 고초열(hay fever) 때도 이하선 팽대"],
+    dx:["관련 약물(표 7-1): Ethambutol, Heavy metals, Iodine compounds, Isoproterenol, Phenobarbital, Phenothiazine, Sulfisoxazole",
+        "진성 과민반응이 아니라 약물로 인한 타액량 감소 후 이차감염이거나 특이성 반응일 수 있음",
+        "혈관부종(angioedema)이나 피부발진 같은 알레르기 징후가 없으면 더욱 주의해서 진단"],
+    tx:["꽉 찬 점액전(mucous plug)을 도관 개구부를 통해 제거하면 완화","일반적으로 자기한정성",
+        "간혹 이차 세균감염으로 만성 타액선염으로 진행",S("원인 약물을 중단하거나 바꿈")]},
+  nsm:{name:"괴사성 타액선 이형성증", en:"Necrotizing sialometaplasia", crumb:"염증성·반응성", c:"--react",
+    tags:["소타액선","40–50대 남성","자가 치유"],
+    link:{href:"https://en.wikipedia.org/wiki/Necrotizing_sialometaplasia", text:"Wikipedia 문서의 임상사진 보기"},
+    sx:["소타액선을 침범하는 원인불명의 양성 반응성 염증 병소",S("주로 경구개 후방의 편측성, 분화구 모양 궤양. 초기에는 종창으로 시작하며 통증은 적음"),
+        "40–50대 남자에서 대부분 발생"],
+    dx:["조직병리학적으로 악성 타액선 종양과 비슷해 악성으로 오인되기 쉬움",
+        "조직 소견: 선포괴사(응고괴사의 전형)와 도관의 편평상피 이형성",
+        S("생검으로 편평세포암, 점액표피양암과 감별")],
+    tx:["양성의 자가 치유 병소","악성으로 혼동해 불필요한 외과수술을 하지 않도록 주의",S("생검으로 확진한 뒤 경과 관찰하며 대개 6–10주에 치유")]},
+  mucocele:{name:"점액류", en:"Mucocele (extravasation)", crumb:"점액성 낭성 병소", c:"--cyst",
+    tags:["하순 호발","상피 내층 없음"],
+    photo:{file:"Mucocele of lower lip (1).JPG", cap:"하순의 점액류"},
+    sx:[S("외상으로 소타액선 도관이 끊겨 점액이 조직으로 새어 나와 생김"),S("하순에 가장 흔하며 푸르스름하고 말랑한 무통성 종창. 크기가 커졌다 줄었다 함")],
+    dx:["내강에 상피 내층이 없어 점액 저류성 낭종과 구분됨",S("구강저에 생긴 큰 점액류는 하마종")],
+    tx:["우선 외과적 절제","흡인(aspiration)만으로는 도움이 되지 않음","재발 방지를 위해 관련 소타액선도 함께 절제"]},
+  mrc:{name:"점액 저류성 낭종", en:"Mucus retention cyst", crumb:"점액성 낭성 병소", c:"--cyst",
+    tags:["상피 내층","3–10 mm","드묾"],
+    link:{href:"https://www.google.com/search?tbm=isch&q=mucous+retention+cyst+oral", text:"이미지 검색으로 사진 보기"},
+    sx:["점액류보다 드문 병소","구개, 협점막, 구강저, 상악동에 호발하고 하순에는 비교적 드묾",
+        "외상 여부와 관계없이 이동성의 무통성 종창, 크기 3–10 mm","덮고 있는 점막은 변화 없이 정상 색깔"],
+    dx:["내강이 상피세포층으로 둘러싸여 점액류와 분명히 구분","원인: 타액선 도관이 막혀 타액의 흐름이 차단됨",
+        "상악동에 생기면 상악동 바닥의 반월형 방사선 불투과성 병소로 관찰"],
+    tx:["병소와 관련된 소타액선 소엽의 완전한 절제","적절히 치료하면 예후가 좋고 재발이 거의 없음"]},
+  ranula:{name:"하마종", en:"Ranula", crumb:"점액성 낭성 병소", c:"--cyst",
+    tags:["구강저","설하선 기원","청색 종창"],
+    photo:{file:"Ranula human 09.jpg", cap:"구강저의 하마종"},
+    sx:["구강저에 생긴 점액류를 가리키는 임상 용어","파동성이 있는 편측성 연조직 덩어리",
+        "청색을 띠고 부풀어 오른 개구리 배와 비슷해 붙은 이름","크기가 다양하며 커지면 혀가 한쪽으로 밀리고 정중선을 넘기도 함"],
+    dx:["주로 설하선과 관련되고 악하선 기원은 드묾","원인은 외상이나 도관 폐쇄이며 폐쇄는 주로 타석(sialolith)",
+        "깊이 있으면 표면 점막이 정상처럼 보여 표피낭종(dermoid cyst)과 감별 필요"],
+    tx:["외과적 절제가 일반적","크기가 크면 감압술로 크기를 줄인 뒤 절제",S("원인 설하선을 함께 적출하면 재발이 줄어듦")]}
+};
+
+/* ---------- 레이아웃 ---------- */
+const map = document.getElementById("map"), svg = document.getElementById("links");
+const ROW = 98, TOP = 56, COL = {root:24, cat:230, sub:430, leaf:640};
+const leaves = [];
+(function collect(n){ (n.children||[]).forEach(ch=> typeof ch === "string" ? leaves.push(ch) : collect(ch)); })(TREE);
+const H = TOP*2 + ROW*(leaves.length-1);
+map.style.height = H + "px";
+
+const pos = {};
+function place(n, depth, color){
+  if(typeof n === "string"){ pos[n] = {y: TOP + ROW*leaves.indexOf(n), x: COL.leaf, c: color}; return pos[n].y; }
+  const ys = (n.children||[]).map(ch=>place(ch, depth+1, n.c || color));
+  const y = ys.reduce((a,b)=>a+b,0)/ys.length;
+  pos[n.id] = {y, x: depth===0?COL.root: depth===1?COL.cat:COL.sub, c:n.c||color, n, depth};
+  return y;
+}
+place(TREE, 0);
+
+function el(tag, cls, html){ const e = document.createElement(tag); if(cls) e.className = cls; if(html!=null) e.innerHTML = html; return e; }
+Object.keys(pos).forEach(id=>{
+  const p = pos[id]; let node;
+  if(D[id]){
+    const d = D[id];
+    node = el("button","node leaf",
+      "<b>"+d.name+"</b>"+(d.photo?'<span class="cam">사진</span>':"")+"<small>"+d.en+"</small>"+
+      '<span class="tags">'+d.tags.map(t=>"<span>"+t+"</span>").join("")+"</span>");
+    node.type = "button"; node.dataset.id = id; node.setAttribute("aria-haspopup","dialog");
+  } else if(p.depth===0){
+    node = el("div","node n-root","<b>"+p.n.name+"</b><small>"+p.n.en+"</small>");
+  } else if(p.depth===1){
+    node = el("div","node n-cat","<b>"+p.n.name+"</b><small>"+p.n.en+"</small>");
+  } else {
+    node = el("div","node n-sub","<b>"+p.n.name+"</b><small>"+p.n.en+"</small>");
+  }
+  node.style.left = p.x + "px"; node.style.top = p.y + "px";
+  node.style.setProperty("--c", "var("+(D[id]?D[id].c:p.c)+")");
+  p.el = node; map.appendChild(node);
+});
+
+function drawLinks(){
+  svg.innerHTML = "";
+  const mb = map.getBoundingClientRect();
+  (function walk(n){
+    const pid = n.id, pe = pos[pid].el.getBoundingClientRect();
+    (n.children||[]).forEach(ch=>{
+      const cid = typeof ch === "string" ? ch : ch.id;
+      const ce = pos[cid].el.getBoundingClientRect();
+      const x1 = pe.right - mb.left, y1 = pe.top + pe.height/2 - mb.top;
+      const x2 = ce.left - mb.left, y2 = ce.top + ce.height/2 - mb.top;
+      const mx = (x1+x2)/2;
+      const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+      path.setAttribute("d","M"+x1+","+y1+" C"+mx+","+y1+" "+mx+","+y2+" "+x2+","+y2);
+      const col = typeof ch === "string" ? D[ch].c : (ch.c || n.c);
+      path.style.stroke = "var("+col+")"; path.style.opacity = ".55";
+      svg.appendChild(path);
+      if(typeof ch !== "string") walk(ch);
+    });
+  })(TREE);
+}
+drawLinks();
+addEventListener("resize", drawLinks);
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(drawLinks);
+
+/* ---------- 툴팁 ---------- */
+const tip = document.getElementById("tip");
+let pinned = null, current = null;
+const li = (x)=> typeof x === "string" ? "<li>"+x+"</li>" : '<li>'+x.t+'<span class="sup">보충</span></li>';
+
+function render(id){
+  const d = D[id];
+  tip.style.setProperty("--c", "var("+d.c+")");
+  let media = "";
+  if(d.photo){
+    media = '<figure><div class="ph"><img alt="'+d.name+' 임상사진" loading="lazy" referrerpolicy="no-referrer" src="'+FP(d.photo.file)+'">'+
+      '<div class="fallback" hidden><span>이 화면에서는 사진을 불러올 수 없습니다.</span><a href="'+FPAGE(d.photo.file)+'" target="_blank" rel="noopener">Wikimedia Commons에서 사진 보기 ↗</a></div></div>'+
+      '<figcaption>'+d.photo.cap+' · <a href="'+FPAGE(d.photo.file)+'" target="_blank" rel="noopener">출처·라이선스</a></figcaption></figure>';
+  } else if(d.link){
+    media = '<div class="nophoto">자유 라이선스 임상사진을 찾지 못했습니다. <a href="'+d.link.href+'" target="_blank" rel="noopener">'+d.link.text+' ↗</a></div>';
+  } else {
+    media = '<div class="nophoto">자유 라이선스 임상사진을 찾지 못했습니다.</div>';
+  }
+  tip.innerHTML =
+    (pinned ? '<button type="button" class="close" id="tipclose">닫기</button>' : "")+
+    '<div class="crumb">'+d.crumb+'</div><h2>'+d.name+'</h2><div class="en">'+d.en+'</div>'+ media +
+    '<h3>증상</h3><ul>'+d.sx.map(li).join("")+'</ul>'+
+    '<h3>감별 · 진단</h3><ul>'+d.dx.map(li).join("")+'</ul>'+
+    '<h3>치료 · 예후</h3><ul>'+d.tx.map(li).join("")+'</ul>'+
+    (pinned ? "" : '<div class="pinhint">클릭하면 카드가 고정됩니다</div>');
+  const img = tip.querySelector("img");
+  if(img){
+    const fail = ()=>{ img.hidden = true; tip.querySelector(".fallback").hidden = false; };
+    img.addEventListener("error", fail);
+    if(img.complete && !img.naturalWidth && img.src) setTimeout(()=>{ if(!img.naturalWidth) fail(); }, 50);
+  }
+  const cb = document.getElementById("tipclose"); if(cb) cb.addEventListener("click", unpin);
+  tip.classList.toggle("pinned", !!pinned);
+}
+function position(anchor){
+  const r = anchor.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight, vw = innerWidth, vh = innerHeight;
+  let left = r.left - w - 14;
+  if(left < 12) left = r.right + 14;
+  if(left + w > vw - 12) left = Math.max(12, (vw - w)/2);
+  let top = r.top + r.height/2 - h/2;
+  top = Math.max(12, Math.min(vh - h - 12, top));
+  tip.style.transform = "translate("+Math.round(left)+"px,"+Math.round(top)+"px)";
+}
+function show(btn){
+  const id = btn.dataset.id;
+  document.querySelectorAll("button.leaf.on").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on");
+  current = btn; render(id); tip.hidden = false; position(btn);
+  const img = tip.querySelector("img"); if(img) img.addEventListener("load", ()=>position(btn), {once:true});
+}
+function hide(){ if(pinned) return; tip.hidden = true; if(current) current.classList.remove("on"); current = null; }
+function unpin(){ pinned = null; tip.hidden = true; document.querySelectorAll("button.leaf.on").forEach(b=>b.classList.remove("on")); current = null; }
+
+const hoverable = matchMedia("(hover: hover)");
+document.querySelectorAll("button.leaf").forEach(btn=>{
+  btn.addEventListener("mouseenter", ()=>{ if(!pinned && hoverable.matches) show(btn); });
+  btn.addEventListener("mouseleave", ()=>{ if(!pinned) hide(); });
+  btn.addEventListener("focus", ()=>{ if(!pinned) show(btn); });
+  btn.addEventListener("blur", ()=>{ if(!pinned) hide(); });
+  btn.addEventListener("click", ()=>{
+    if(pinned === btn){ unpin(); return; }
+    pinned = btn; show(btn);
+  });
+});
+document.addEventListener("keydown", e=>{ if(e.key === "Escape") unpin(); });
+document.addEventListener("click", e=>{ if(pinned && !tip.contains(e.target) && !e.target.closest("button.leaf")) unpin(); });
+addEventListener("scroll", ()=>{ if(current) position(current); }, {passive:true});
+document.querySelector(".mapwrap").addEventListener("scroll", ()=>{ if(current) position(current); }, {passive:true});
+})();
+</script>
+</body>
+</html>

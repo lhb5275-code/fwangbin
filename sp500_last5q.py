@@ -135,9 +135,24 @@ def fetch_yahoo(ticker, cik=None, **_):
     if stmt is None or stmt.empty:
         raise RuntimeError("quarterly_income_stmt 가 비어 있음")
 
-    cols = sorted(stmt.columns, key=pd.Timestamp, reverse=True)[:N_Q]
     rev_row = _row(stmt, "Total Revenue")
     oi_row = _row(stmt, "Operating Income")
+    # Yahoo가 아직 채우지 않은 분기 열(매출·영업이익 모두 비어 있음)은 분기로 세지 않는다
+    all_cols = sorted(stmt.columns, key=pd.Timestamp, reverse=True)
+    skipped = [
+        c
+        for c in all_cols
+        if (rev_row is None or pd.isna(rev_row[c])) and (oi_row is None or pd.isna(oi_row[c]))
+    ]
+    cols = [c for c in all_cols if c not in skipped][:N_Q]
+    if not cols:
+        raise RuntimeError("Total Revenue / Operating Income 값이 없음")
+    newer_skipped = [c for c in skipped if pd.Timestamp(c) > pd.Timestamp(cols[0])]
+    note = (
+        "Yahoo에 값 없는 최신 분기 열 제외: " + ", ".join(pd.Timestamp(c).strftime("%Y-%m-%d") for c in newer_skipped)
+        if newer_skipped
+        else ""
+    )
 
     dates, rev, oi = [], [], []
     for i in range(N_Q):
@@ -150,7 +165,7 @@ def fetch_yahoo(ticker, cik=None, **_):
             dates.append(None)
             rev.append(np.nan)
             oi.append(np.nan)
-    return {"dates": dates, "rev": rev, "oi": oi, "note": ""}
+    return {"dates": dates, "rev": rev, "oi": oi, "note": note}
 
 
 def _sec_periods(tag_facts):
@@ -525,6 +540,8 @@ def describe_missing(r):
         issues.append("매출 없음: " + ",".join(miss_rev))
     if miss_oi:
         issues.append("영업이익 없음: " + ",".join(miss_oi))
+    if r["note"].startswith("Yahoo에 값 없는"):
+        issues.append(r["note"])
     if r["dates"][0] and r["dates"][4]:
         gap = (pd.Timestamp(r["dates"][0]) - pd.Timestamp(r["dates"][4])).days
         if not 330 <= gap <= 400:

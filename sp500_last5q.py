@@ -57,7 +57,13 @@ SEC_REV_TAGS = [
     "RevenueFromContractWithCustomerIncludingAssessedTax",
     "SalesRevenueNet",
     "RevenuesNetOfInterestExpense",
+    "RegulatedAndUnregulatedOperatingRevenue",  # 전력·가스 유틸리티
 ]
+# 은행: 총수익 태그가 없으면 순이자이익 + 비이자이익 (은행 영업수익의 표준 정의)
+SEC_BANK_REV_PARTS = ("InterestIncomeExpenseNet", "NoninterestIncome")
+# 지주회사 재편 등으로 CIK가 바뀐 경우, 새 CIK에 과거 자료가 없으면 이전 CIK로 조회
+SEC_PREDECESSOR_CIK = {"XOM": 34088}
+SEC_STALE_DAYS = 200  # 회사의 최신 보고 분기보다 이만큼 이상 오래된 태그는 사용 중단된 것으로 보고 제외
 SEC_OI_TAG = "OperatingIncomeLoss"
 SEC_FORMS = {"10-Q", "10-K", "10-Q/A", "10-K/A", "10-QT", "10-KT"}
 BROWSER_UA = {"User-Agent": "Mozilla/5.0 (sp500-last5q script)"}
@@ -275,20 +281,39 @@ def sec_quarterly(tag_facts, cutoff=None):
 def parse_sec_facts(facts, cutoff=None):
     """companyfacts JSON → dict(dates, rev, oi, note)."""
     gaap = facts.get("facts", {}).get("us-gaap", {})
+    ends = [
+        pd.Timestamp(f["end"])
+        for v in gaap.values()
+        for f in v.get("units", {}).get("USD", [])
+        if f.get("form") in SEC_FORMS and "start" in f and (not cutoff or f.get("filed", "9999") <= cutoff)
+    ]
+    if not ends:
+        raise NoDataError("기준일 이전 SEC 제출 자료 없음 (이후 상장·분사 또는 CIK 변경)" if cutoff else "SEC 재무 자료 없음")
+    latest = max(ends)
+
+    def fresh(series):
+        return series if series and (latest - max(series)).days <= SEC_STALE_DAYS else {}
+
     rev_tag, rev_q = None, {}
     best_key = None
     for prio, tag in enumerate(SEC_REV_TAGS):
         if tag not in gaap:
             continue
-        series = sec_quarterly(gaap[tag], cutoff)
+        series = fresh(sec_quarterly(gaap[tag], cutoff))
         if not series:
             continue
         key = (max(series), -prio)
         if best_key is None or key > best_key:
             best_key, rev_tag, rev_q = key, tag, series
-    oi_q = sec_quarterly(gaap[SEC_OI_TAG], cutoff) if SEC_OI_TAG in gaap else {}
+    bank_rev = False
+    if not rev_q and all(t in gaap for t in SEC_BANK_REV_PARTS):
+        nii, nonii = (fresh(sec_quarterly(gaap[t], cutoff)) for t in SEC_BANK_REV_PARTS)
+        rev_q = {d: (nii[d][0] + nonii[d][0], nii[d][1] or nonii[d][1]) for d in set(nii) & set(nonii)}
+        if rev_q:
+            rev_tag, bank_rev = "순이자이익+비이자이익(은행)", True
+    oi_q = fresh(sec_quarterly(gaap[SEC_OI_TAG], cutoff)) if SEC_OI_TAG in gaap else {}
     if not rev_q and not oi_q:
-        raise NoDataError("SEC XBRL에 매출/영업이익 태그 없음")
+        raise NoDataError("SEC XBRL에 매출/영업이익 태그 없음 (회사 고유 태그 사용 등)")
 
     grid = sorted(set(rev_q) | set(oi_q), reverse=True)[:N_Q]
     dates, rev, oi, derived = [], [], [], []
@@ -305,7 +330,9 @@ def parse_sec_facts(facts, cutoff=None):
             out.append(v)
             if is_derived:
                 derived.append(f"{label} {Q_LABELS[k]}")
-    note = f"매출태그={rev_tag or '없음'}"
+    note = f"매출태그={rev_tag or '없음(회사 고유 태그 등)'}"
+    if bank_rev:
+        note += "; 은행 매출은 두 공시 항목의 합"
     if derived:
         note += "; 누적값 차감으로 산출: " + ", ".join(derived)
     return {"dates": dates, "rev": rev, "oi": oi, "note": note}
@@ -314,11 +341,23 @@ def parse_sec_facts(facts, cutoff=None):
 def fetch_sec(ticker, cik=None, user_agent=SEC_DEFAULT_UA, cutoff=None):
     if cik is None or (isinstance(cik, float) and np.isnan(cik)):
         raise NoDataError("CIK 없음")
-    resp = requests.get(SEC_FACTS_URL.format(cik=int(cik)), headers={"User-Agent": user_agent}, timeout=60)
-    if resp.status_code == 404:
-        raise NoDataError(f"SEC companyfacts 없음 (CIK {int(cik)})")
-    resp.raise_for_status()
-    return parse_sec_facts(resp.json(), cutoff)
+    ciks = [int(cik)] + ([SEC_PREDECESSOR_CIK[ticker]] if ticker in SEC_PREDECESSOR_CIK else [])
+    err = None
+    for c in ciks:
+        resp = requests.get(SEC_FACTS_URL.format(cik=c), headers={"User-Agent": user_agent}, timeout=60)
+        if resp.status_code == 404:
+            err = NoDataError(f"SEC companyfacts 없음 (CIK {c})")
+            continue
+        resp.raise_for_status()
+        try:
+            data = parse_sec_facts(resp.json(), cutoff)
+        except NoDataError as e:
+            err = e
+            continue
+        if c != int(cik):
+            data["note"] += f"; 이전 CIK {c} 자료 사용"
+        return data
+    raise err
 
 
 FETCHERS = {"yahoo": fetch_yahoo, "sec": fetch_sec}

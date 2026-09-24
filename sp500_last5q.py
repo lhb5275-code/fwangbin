@@ -65,6 +65,10 @@ MAX_RETRIES = 3
 Q_LABELS = ["Q0", "Q-1", "Q-2", "Q-3", "Q-4"]
 VERIFY_TICKERS = ["AAPL", "MSFT", "NVDA", "JPM"]
 KST = timezone(timedelta(hours=9))
+QOQ_HOT = 0.10  # 최근 QoQ 매출 성장률 기준
+BUSINESS_KO_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sp500_business_ko.csv")
+TIER_LABELS = {0: "QoQ 가속 + 최근 QoQ≥10%", 1: "QoQ 가속", 2: "최근 QoQ≥10%"}
+TIER_FILLS = {0: "C6EFCE", 1: "FFF2CC", 2: "FFF2CC"}
 
 CACHE_FIELDS = (
     ["ticker", "name", "status", "error", "note"]
@@ -378,10 +382,64 @@ def build_table(universe, cache):
             "oi_yoy": op_income_yoy(oi[0], oi[4]),
             "qoq": [ratio_growth(rev[k], rev[k + 1]) for k in range(4)],
         }
+        row["tier"] = qoq_tier(row["qoq"])
         rows.append(row)
-    # 매출 YoY 내림차순, NaN은 맨 아래
-    rows.sort(key=lambda x: (np.isnan(x["rev_yoy"]), -x["rev_yoy"] if not np.isnan(x["rev_yoy"]) else 0))
+    rows.sort(key=sort_key)
     return rows
+
+
+def qoq_tier(qoq):
+    """0: QoQ 가속 & 최근 QoQ≥10%, 1: QoQ 가속만, 2: 최근 QoQ≥10%만, 3: 해당 없음.
+
+    QoQ 가속 = 매출 QoQ 성장률이 4개 구간 연속 상승: QoQ(Q0) > QoQ(Q-1) > QoQ(Q-2) > QoQ(Q-3)
+    """
+    accel = not any(np.isnan(v) for v in qoq) and qoq[0] > qoq[1] > qoq[2] > qoq[3]
+    hot = not np.isnan(qoq[0]) and qoq[0] >= QOQ_HOT
+    if accel and hot:
+        return 0
+    if accel:
+        return 1
+    if hot:
+        return 2
+    return 3
+
+
+def sort_key(x):
+    """선정 기업(0~2)은 등급 → 최근 QoQ 내림차순, 나머지는 매출 YoY 내림차순(NaN 맨 아래)."""
+    if x["tier"] < 3:
+        return (0, min(x["tier"], 1), -x["qoq"][0])
+    yoy = x["rev_yoy"]
+    return (1, int(np.isnan(yoy)), -yoy if not np.isnan(yoy) else 0)
+
+
+def load_business_ko(path=BUSINESS_KO_CSV):
+    if not os.path.exists(path):
+        return {}
+    df = pd.read_csv(path, dtype=str, encoding="utf-8-sig").dropna()
+    return dict(zip(df["ticker"], df["business_ko"]))
+
+
+def yahoo_industry(ticker):
+    """한글 설명이 없는 종목용 대체값: Yahoo 섹터/업종."""
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(ticker).info
+        parts = [p for p in (info.get("sector"), info.get("industry")) if p]
+        return f"(Yahoo 업종) {' / '.join(parts)}" if parts else ""
+    except Exception:  # noqa: BLE001
+        return ""
+    finally:
+        polite_sleep()
+
+
+def attach_business(rows):
+    ko = load_business_ko()
+    for r in rows:
+        if r["tier"] < 3:
+            r["business"] = ko.get(r["ticker"]) or yahoo_industry(r["ticker"])
+        else:
+            r["business"] = ""
 
 
 # --------------------------------------------------------------------------- 4. Excel
@@ -391,6 +449,7 @@ HEADERS = (
     + [f"영업이익 {q} (백만$)" for q in Q_LABELS]
     + ["매출성장률(YoY)", "영업이익성장률(YoY)"]
     + [f"매출 QoQ({q})" for q in Q_LABELS[:4]]
+    + ["선정 기준", "주요 사업"]
 )
 FMT_MUSD = "#,##0"
 FMT_PCT = "0.0%"
@@ -447,7 +506,12 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path, source
             + [_musd(v) for v in r["oi"]]
             + [_blank(r["rev_yoy"]), _blank(r["oi_yoy"])]
             + [_blank(v) for v in r["qoq"]]
+            + [TIER_LABELS.get(r["tier"], ""), r["business"]]
         )
+        if r["tier"] < 3:
+            fill = PatternFill("solid", fgColor=TIER_FILLS[r["tier"]])
+            for c in ws[ws.max_row]:
+                c.fill = fill
 
     formats = {}
     for col in range(4, 14):
@@ -464,7 +528,7 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path, source
 
     ws.freeze_panes = "C2"  # 헤더 행 + 기업명/티커 열 고정
     ws.auto_filter.ref = ws.dimensions
-    autofit(ws, formats)
+    autofit(ws, formats, max_w=80)
 
     # ---- 메모 시트
     memo = wb.create_sheet("메모")
@@ -479,6 +543,16 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path, source
         [
             "영업이익 YoY 규칙",
             "Q-4 영업이익 ≤ 0 → Q0 > 0 이면 '흑자전환', 아니면 'N/M' / Q-4 > 0 이고 Q0 < 0 → '적자전환'",
+        ]
+    )
+    n_tier = {t: sum(1 for r in rows if r["tier"] == t) for t in range(3)}
+    memo.append(
+        [
+            "행 정렬 기준",
+            f"① 초록: QoQ 가속(QoQ(Q0)>QoQ(Q-1)>QoQ(Q-2)>QoQ(Q-3)) 이면서 최근 QoQ≥10% ({n_tier[0]}개) → "
+            f"② 노랑: 둘 중 하나만 해당 (가속 {n_tier[1]}개, QoQ≥10% {n_tier[2]}개) — ①②는 최근 QoQ 내림차순 → "
+            "③ 나머지: 매출 YoY 내림차순(계산 불가는 맨 아래). "
+            "주요 사업은 ①② 기업에 기재 (sp500_business_ko.csv, 없으면 Yahoo 업종)",
         ]
     )
     for r in range(1, memo.max_row + 1):
@@ -635,6 +709,7 @@ def main():
     collected_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
 
     rows = build_table(universe, cache)
+    attach_business(rows)
     failed = [(r["ticker"], r["name"], r["error"]) for r in rows if r["status"] == "failed"]
     missing = [(r["ticker"], r["name"], m) for r in rows if (m := describe_missing(r))]
     write_excel(rows, len(universe), failed, missing, collected_at, out_path, source, universe_src)

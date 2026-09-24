@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""S&P 500 구성 종목의 최근 5개 분기 매출/영업이익을 수집해 Excel로 정리한다.
+"""S&P 500 / Russell 1000 구성 종목의 최근 5개 분기 매출/영업이익을 수집해 Excel로 정리한다.
+
+대상 지수 (--universe, 기본 sp500):
+    sp500       : Wikipedia "List of S&P 500 companies" (접속 불가 시 GitHub datasets/s-and-p-500-companies)
+    russell1000 : iShares Russell 1000 ETF(IWB) 보유종목 CSV (지수 추종 ETF의 주식 보유분)
 
 데이터 소스 (--source, 기본 auto):
     yahoo : Yahoo Finance via yfinance (quarterly_income_stmt의 Total Revenue / Operating Income)
@@ -11,13 +15,14 @@
 사용법:
     python sp500_last5q.py                 # 전체 S&P 500 수집 (캐시가 있으면 이어서)
     python sp500_last5q.py --tickers AAPL MSFT NVDA JPM   # 일부 종목만 (테스트용)
+    python sp500_last5q.py --universe russell1000          # Russell 1000
     python sp500_last5q.py --source sec    # SEC EDGAR 강제 사용
     python sp500_last5q.py --fresh         # 캐시 무시하고 처음부터
 
 SEC는 연락처가 포함된 User-Agent를 요구한다:
     SEC_USER_AGENT="홍길동 you@example.com" python sp500_last5q.py --source sec
 
-중간 결과는 sp500_cache_{source}_YYYYMMDD.csv 에 종목별로 한 줄씩 추가된다.
+중간 결과는 {universe}_cache_{source}_YYYYMMDD.csv 에 종목별로 한 줄씩 추가된다.
 중단 후 다시 실행하면 이미 성공(ok/partial)한 종목은 건너뛰고, 실패한 종목만 다시 시도한다.
 """
 
@@ -66,7 +71,9 @@ Q_LABELS = ["Q0", "Q-1", "Q-2", "Q-3", "Q-4"]
 VERIFY_TICKERS = ["AAPL", "MSFT", "NVDA", "JPM"]
 KST = timezone(timedelta(hours=9))
 QOQ_HOT = 0.10  # 최근 QoQ 매출 성장률 기준
-BUSINESS_KO_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sp500_business_ko.csv")
+BUSINESS_KO_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "business_ko.csv")
+IWB_HOLDINGS_CSV = "https://www.ishares.com/us/products/239707/ishares-russell-1000-etf/latest-holdings.csv"
+UNIVERSE_LABEL = {"sp500": "S&P 500", "russell1000": "Russell 1000"}
 TIER_LABELS = {0: "QoQ 가속 + 최근 QoQ≥10%", 1: "QoQ 가속", 2: "최근 QoQ≥10%"}
 TIER_FILLS = {0: "C6EFCE", 1: "FFF2CC", 2: "FFF2CC"}
 
@@ -103,6 +110,52 @@ def get_sp500_list():
     resp.raise_for_status()
     df = pd.read_csv(StringIO(resp.text))
     return _normalize_universe(df), f"{GITHUB_SP500_CSV} (Wikipedia 표 미러, Wikipedia 접속 불가로 대체)"
+
+
+def get_russell1000_list():
+    """iShares Russell 1000 ETF(IWB) 보유 주식 목록 → (기업명, Yahoo 티커, CIK) 리스트와 출처 설명."""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"}
+    resp = requests.get(IWB_HOLDINGS_CSV, headers=headers, timeout=60)
+    resp.raise_for_status()
+    lines = resp.text.splitlines()
+    as_of = next((ln.split(",", 1)[1].strip('"') for ln in lines[:10] if ln.startswith("Fund Holdings as of")), "?")
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("Ticker,"))
+    df = pd.read_csv(StringIO("\n".join(lines[start:])))
+    df = df[df["Asset Class"] == "Equity"]
+    tickers = df["Ticker"].astype(str).str.strip().str.replace(r"[ .]", "-", regex=True)
+    names = df["Name"].astype(str).str.replace(r"\s+CLASS [A-Z]$", "", regex=True).str.strip()
+    out = pd.DataFrame({"name": names.values, "ticker": tickers.values, "cik": np.nan})
+    # S&P 500 편입 종목은 Wikipedia 표기의 기업명을 사용 (iShares 명칭은 대문자 약칭)
+    try:
+        sp, _ = get_sp500_list()
+        sp_names = dict(zip(sp["ticker"], sp["name"]))
+        sp_cik = dict(zip(sp["ticker"], sp["cik"]))
+        out["name"] = [sp_names.get(t, n) for t, n in zip(out["ticker"], out["name"])]
+        out["cik"] = [sp_cik.get(t, np.nan) for t in out["ticker"]]
+    except Exception:  # noqa: BLE001
+        pass
+    out = out.drop_duplicates("ticker").reset_index(drop=True)
+    return out, f"{IWB_HOLDINGS_CSV} (iShares Russell 1000 ETF 보유종목, {as_of} 기준)"
+
+
+def dedupe_share_classes(universe, cache):
+    """같은 회사의 복수 주식 클래스(GOOGL/GOOG 등)는 재무 데이터가 동일하므로 하나만 남긴다.
+
+    유니버스 순서(IWB는 비중 순)상 먼저 나온 티커를 남기고, 제외된 티커는 [(제외, 남긴 티커)]로 반환.
+    """
+    seen, keep, dropped = {}, [], []
+    for i, t in enumerate(universe["ticker"]):
+        r = cache.get(t) or {}
+        rev = tuple(_num(r.get(f"rev_{k}")) for k in range(N_Q))
+        oi = tuple(_num(r.get(f"oi_{k}")) for k in range(N_Q))
+        if r.get("status") in ("ok", "partial") and not all(np.isnan(v) for v in rev):
+            key = (tuple(str(r.get(f"date_{k}")) for k in range(N_Q)), tuple(np.nan_to_num(rev, nan=-1.0)), tuple(np.nan_to_num(oi, nan=-1.0)))
+            if key in seen:
+                dropped.append((t, seen[key]))
+                continue
+            seen[key] = t
+        keep.append(i)
+    return universe.iloc[keep].reset_index(drop=True), dropped
 
 
 def get_sec_cik_map(user_agent):
@@ -488,7 +541,7 @@ def autofit(ws, formats, min_w=6, max_w=60):
         ws.column_dimensions[get_column_letter(col)].width = min(max(w + 2, min_w), max_w)
 
 
-def write_excel(rows, universe_size, failed, missing, collected_at, path, source, universe_src):
+def write_excel(rows, universe_size, failed, missing, collected_at, path, source, universe_src, dup_classes=()):
     wb = Workbook()
     ws = wb.active
     ws.title = "실적"
@@ -552,7 +605,7 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path, source
             f"① 초록: QoQ 가속(QoQ(Q0)>QoQ(Q-1)>QoQ(Q-2)>QoQ(Q-3)) 이면서 최근 QoQ≥10% ({n_tier[0]}개) → "
             f"② 노랑: 둘 중 하나만 해당 (가속 {n_tier[1]}개, QoQ≥10% {n_tier[2]}개) — ①②는 최근 QoQ 내림차순 → "
             "③ 나머지: 매출 YoY 내림차순(계산 불가는 맨 아래). "
-            "주요 사업은 ①② 기업에 기재 (sp500_business_ko.csv, 없으면 Yahoo 업종)",
+            "주요 사업은 ①② 기업에 기재 (business_ko.csv, 없으면 Yahoo 업종)",
         ]
     )
     for r in range(1, memo.max_row + 1):
@@ -568,6 +621,16 @@ def write_excel(rows, universe_size, failed, missing, collected_at, path, source
         memo.append([t, n, e])
     if not failed:
         memo.append(["(없음)"])
+
+    if dup_classes:
+        memo.append([])
+        memo.append([f"동일 기업 중복 주식 클래스 제외 ({len(dup_classes)}개)"])
+        memo.cell(memo.max_row, 1).font = bold
+        memo.append(["제외 티커", "남긴 티커", "사유"])
+        for c in memo[memo.max_row]:
+            c.font = bold
+        for d, k in dup_classes:
+            memo.append([d, k, "재무 데이터 동일 (같은 회사의 다른 주식 클래스)"])
 
     memo.append([])
     memo.append([f"데이터 누락 티커 ({len(missing)}개)"])
@@ -663,6 +726,7 @@ def main():
     ap.add_argument("--fresh", action="store_true", help="기존 캐시 CSV를 지우고 처음부터 수집")
     ap.add_argument("--outdir", default=".", help="출력/캐시 디렉터리 (기본: 현재 디렉터리)")
     ap.add_argument("--source", choices=["auto", "yahoo", "sec"], default="auto", help="데이터 소스 (기본 auto)")
+    ap.add_argument("--universe", choices=list(UNIVERSE_LABEL), default="sp500", help="대상 지수 (기본 sp500)")
     ap.add_argument(
         "--sec-user-agent",
         default=os.environ.get("SEC_USER_AGENT", SEC_DEFAULT_UA),
@@ -683,13 +747,19 @@ def main():
 
     today = datetime.now(KST).strftime("%Y%m%d")
     os.makedirs(args.outdir, exist_ok=True)
-    cache_path = os.path.join(args.outdir, f"sp500_cache_{source}_{today}.csv")
-    out_path = os.path.join(args.outdir, f"sp500_last5q_{today}.xlsx")
+    cache_path = os.path.join(args.outdir, f"{args.universe}_cache_{source}_{today}.csv")
+    out_path = os.path.join(args.outdir, f"{args.universe}_last5q_{today}.xlsx")
     if args.fresh and os.path.exists(cache_path):
         os.remove(cache_path)
 
-    print("S&P 500 종목 리스트 가져오는 중...")
-    universe, universe_src = get_sp500_list()
+    print(f"{UNIVERSE_LABEL[args.universe]} 종목 리스트 가져오는 중...")
+    universe, universe_src = get_sp500_list() if args.universe == "sp500" else get_russell1000_list()
+    if source == "sec" and universe["cik"].isna().any():
+        try:
+            cmap = get_sec_cik_map(args.sec_user_agent)
+            universe["cik"] = [c if pd.notna(c) else cmap.get(t, (np.nan,))[0] for t, c in zip(universe["ticker"], universe["cik"])]
+        except Exception as e:  # noqa: BLE001
+            print(f"  SEC 티커→CIK 매핑 실패: {e}")
     if args.tickers:
         wanted = [t.upper().replace(".", "-") for t in args.tickers]
         sub = universe[universe["ticker"].isin(wanted)]
@@ -707,12 +777,15 @@ def main():
 
     cache = collect(universe, cache_path, FETCHERS[source], **fetch_kw)
     collected_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
+    universe, dup_classes = dedupe_share_classes(universe, cache)
+    if dup_classes:
+        print(f"동일 기업 중복 주식 클래스 {len(dup_classes)}개 제외: " + ", ".join(f"{d}(={k})" for d, k in dup_classes))
 
     rows = build_table(universe, cache)
     attach_business(rows)
     failed = [(r["ticker"], r["name"], r["error"]) for r in rows if r["status"] == "failed"]
     missing = [(r["ticker"], r["name"], m) for r in rows if (m := describe_missing(r))]
-    write_excel(rows, len(universe), failed, missing, collected_at, out_path, source, universe_src)
+    write_excel(rows, len(universe), failed, missing, collected_at, out_path, source, universe_src, dup_classes)
 
     print_verification(rows, source)
 

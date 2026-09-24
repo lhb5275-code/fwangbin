@@ -2,3 +2,5 @@ sp500_cache_*.csv
 sp500_last5q_*.xlsx
 __pycache__/
 out/*.log
+russell1000_cache_*.csv
+russell1000_last5q_*.xlsx

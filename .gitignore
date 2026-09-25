@@ -6,3 +6,6 @@ russell1000_cache_*.csv
 russell1000_last5q_*.xlsx
 *_asof*_cache_*.csv
 *_last5q_*.xlsx
+out/sec_text_cache/
+r1000_guidance_*.csv
+out/r1000_*

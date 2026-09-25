@@ -1,0 +1,6 @@
+ticker,action,low,high,reason
+MIDD,set,815000000,850000000,"가이던스 표의 회사 전체(Total Company) 2분기 매출 $815-850M (자동 추출은 Commercial Foodservice 부문 값)"
+WSC,exclude,,,"추출 문장이 1분기 실적 비교표(가이던스 아님)"
+THC,exclude,,,"Ambulatory 부문 연간(FY2026) 전망 - 분기 전체 매출 가이던스 아님"
+ITT,exclude,,,"1분기 실적 문장(가이던스 아님)"
+TTEK,exclude,,,"가이던스가 'net revenue'(하도급비 차감) 기준 - 총매출과 기준 다름"

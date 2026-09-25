@@ -17,6 +17,7 @@
 import argparse
 import csv
 import os
+import re
 import random
 import sys
 import time
@@ -65,6 +66,10 @@ def find_guidance(ticker, cik, fin):
     # Q-1 종료 후 ~ Q0 발표 전 실적 발표문 (최신 것부터 = 분기 중 가이던스 수정 반영)
     for date, acc, _ in [k for k in ks if q1 < k[0] < q0_rel]:
         texts = gs.exhibit_texts(cik, acc)
+        # 직전 분기 '예비 실적' 발표문은 가이던스가 아니라 Q-1 실적 추정치이므로 제외
+        texts = [(n, x) for n, x in texts if not re.search(r"(?i)preliminary\s+(unaudited\s+)?(financial\s+)?results|"
+                                                           r"preliminary\s+(unaudited\s+)?(q[1-4]|first|second|third|fourth)",
+                                                           x[:3000])]
         res = gs.extract_revenue_guidance(texts, rev0, None if np.isnan(rev4) else rev4)
         if res:
             out.update(
@@ -165,27 +170,44 @@ def iwb_sectors():
     return dict(zip(df["Ticker"].astype(str).str.strip().str.replace(r"[ .]", "-", regex=True), df["Sector"]))
 
 
-def refresh_newer(guide, fin, gcache):
-    """Q0 이후 새 실적 발표가 있었던 종목은 Yahoo 분기 실적을 다시 받아 가이던스 비교를 갱신."""
+def refresh_newer(guide, fin, gcache, fin_extra_path):
+    """Q0 이후 다음 분기 실적 발표(80일 이상 뒤)가 이미 있는데 Yahoo 에 반영되지 않은 종목을 갱신.
+
+    Yahoo 를 다시 받아 보고, 여전히 옛 분기면 SEC XBRL(companyfacts)의 최신 분기 값을 쓴다.
+    갱신된 실적은 fin_extra_path 에 저장해 다음 실행에서도 쓴다.
+    """
     cmap = None
-    changed = 0
+    extra = []
     for t, g in list(guide.items()):
-        if not g.get("newer_release"):
+        nr, q0 = g.get("newer_release"), g.get("q0_end")
+        if not nr or not q0 or (pd.Timestamp(nr) - pd.Timestamp(q0)).days < 80:
             continue
-        data, err = base.fetch_with_retry(base.fetch_yahoo, t)
-        if not data or data["dates"][0] == fin.get(t, {}).get("date_0"):
+        f = fin.get(t, {})
+        data, _ = base.fetch_with_retry(base.fetch_yahoo, t)
+        src = "Yahoo"
+        if not data or not data["dates"][0] or data["dates"][0] <= q0:
+            cmap = cmap or gs.cik_map()
+            try:
+                data, src = base.fetch_sec(t, cmap.get(t)), "SEC XBRL"
+            except Exception:  # noqa: BLE001
+                data = None
+        if not data or not data["dates"][0] or data["dates"][0] <= q0:
             continue
-        rec = {"ticker": t, "name": fin.get(t, {}).get("name", t), "status": "ok", "error": "", "note": data["note"]}
+        rec = {"ticker": t, "name": f.get("name", t), "status": "ok", "error": "",
+               "note": f"최신 분기 {src} 기준 갱신; " + (data.get("note") or "")}
         for k in range(base.N_Q):
             rec[f"date_{k}"], rec[f"rev_{k}"], rec[f"oi_{k}"] = data["dates"][k], data["rev"][k], data["oi"][k]
         fin[t] = rec
+        extra.append(rec)
         cmap = cmap or gs.cik_map()
         guide[t] = find_guidance(t, cmap[t], rec)
-        changed += 1
-    if changed:
+        print(f"  {t}: Q0 {q0} → {rec['date_0']} ({src}), 가이던스 {guide[t]['status']}")
+    if extra:
         pd.DataFrame(list(guide.values()))[GUIDE_FIELDS].to_csv(gcache, index=False)
-    print(f"새 분기 발표 반영: {changed}개")
-    return changed
+        old = pd.read_csv(fin_extra_path, dtype={"ticker": str}) if os.path.exists(fin_extra_path) else pd.DataFrame()
+        pd.concat([old, pd.DataFrame(extra)]).drop_duplicates("ticker", keep="last").to_csv(fin_extra_path, index=False)
+    print(f"새 분기 반영: {len(extra)}개")
+    return len(extra)
 
 
 def build_excel(path, rows, allrows, sector_names, meta):
@@ -304,14 +326,14 @@ def build_excel(path, rows, allrows, sector_names, meta):
     fa = wb.create_sheet(full)
     fcols = ["기업명", "티커", "섹터(GICS)", "Q0 종료일", "가이던스 하단 (백만$)", "가이던스 상단 (백만$)",
              "가이던스 중앙값 (백만$)", "Q0 실제 매출 (백만$)", "가이던스 형태", "가이던스 중앙값 대비", "가이던스 상단 대비",
-             "크게 상회", "매출성장률(YoY)", "가이던스 근거 문장", "SEC 공시"]
+             "크게 상회", "매출성장률(YoY)", "가이던스 근거 문장", "SEC 공시", "근거 문장 수동 검토"]
     header(fa, fcols)
     for r, d in enumerate(allrows, 2):
         vals = [d["name"], d["ticker"], d["sector"], d["q0_end"], ms(d["low"]), ms(d["high"]), ms(d["mid"]),
                 ms(d["rev"][0]), d["kind_ko"], f"=H{r}/G{r}-1", f"=H{r}/F{r}-1",
                 f'=IF(AND(J{r}>={meta["min_beat"]},K{r}>0),"예","")',
                 (d["rev"][0] / d["rev"][4] - 1) if d["rev"][4] and not np.isnan(d["rev"][4]) and d["rev"][4] != 0 else None,
-                d["snippet"], d["guide_url"]]
+                d["snippet"], d["guide_url"], "검토 완료" if d.get("reviewed") else ""]
         for i, val in enumerate(vals, 1):
             if isinstance(val, float) and np.isnan(val):
                 val = None
@@ -323,8 +345,8 @@ def build_excel(path, rows, allrows, sector_names, meta):
             elif i == 15 and val:
                 c.hyperlink, c.value, c.font = val, "8-K 보기", Font(color="0563C1", underline="single")
     fa.freeze_panes = "C2"
-    fa.auto_filter.ref = f"A1:O{len(allrows) + 1}"
-    for i, w in enumerate([24, 8, 18, 11, 12, 12, 12, 12, 12, 11, 11, 8, 11, 80, 10], 1):
+    fa.auto_filter.ref = f"A1:P{len(allrows) + 1}"
+    for i, w in enumerate([24, 8, 18, 11, 12, 12, 12, 12, 12, 11, 11, 8, 11, 80, 10, 12], 1):
         fa.column_dimensions[get_column_letter(i)].width = w
 
     # ---------------- 4. 메모
@@ -341,7 +363,9 @@ def build_excel(path, rows, allrows, sector_names, meta):
         ("가이던스 형태", "범위(하단~상단), ±금액, ±%, 단일값(approximately), 성장률(전년 동기 매출 × (1+가이던스 성장률)로 환산)"),
         ("EPS 서프라이즈", "Yahoo Finance: 최근 분기 실제 EPS vs 애널리스트 컨센서스 (회사 가이던스가 아닌 참고 지표)"),
         ("주가수익률", f"{meta['p_start']} 종가 → {meta['p_end']} 종가 (Yahoo, 분할 조정·배당 제외)"),
-        ("PER / Forward PER", "Yahoo Finance trailingPE / forwardPE (수집 시점 주가 기준, 적자 기업은 빈칸)"),
+        ("PER / Forward PER", "Yahoo Finance trailingPE / forwardPE (수집 시점 주가 기준). 최근 12개월 적자 또는 향후 12개월 "
+                              "적자 예상이면 빈칸"),
+        ("1년 주가수익률 빈칸", "시작일 이후 상장·분사한 종목 (상장 1년 미만)"),
         ("매출·영업이익", "Yahoo Finance quarterly_income_stmt, 백만 달러. 영업이익 YoY 규칙: Q-4 ≤ 0 → 흑자전환/N/M, Q-4>0 & Q0<0 → 적자전환"),
         ("주의", "가이던스와 실제 매출의 기준(GAAP/비GAAP, 환율·인수 효과 등)이 다를 수 있음. 인수합병으로 매출이 늘어난 경우 "
                "가이던스에 반영되지 않았을 수 있으니 근거 문장을 확인할 것. 투자 판단의 근거가 아닌 스크리닝 결과임"),
@@ -362,12 +386,15 @@ def main():
     ap.add_argument("--fin-cache", required=True, help="Russell 1000 분기 실적 캐시 CSV (sp500_last5q.py 결과)")
     ap.add_argument("--min-beat", type=float, default=0.05, help="'크게 상회' 기준: 가이던스 중앙값 대비 (기본 5%%)")
     ap.add_argument("--outdir", default="out")
-    ap.add_argument("--stage", choices=["guidance", "all"], default="all")
+    ap.add_argument("--stage", choices=["guidance", "review", "all"], default="all")
     args = ap.parse_args()
 
     today = datetime.now(KST).strftime("%Y%m%d")
     universe, uni_src = base.get_russell1000_list()
     fin = load_fin(args.fin_cache)
+    fin_extra = os.path.join(args.outdir, f"r1000_fin_refreshed_{today}.csv")
+    if os.path.exists(fin_extra):
+        fin.update(load_fin(fin_extra))
     universe, dups = base.dedupe_share_classes(universe, fin)
     tickers = list(universe["ticker"])
     print(f"대상 {len(tickers)}개 (중복 클래스 {len(dups)}개 제외)")
@@ -376,10 +403,9 @@ def main():
     gcache = os.path.join(args.outdir, f"r1000_guidance_{today}.csv")
     guide = collect_guidance(tickers, fin, gcache)
     print("가이던스 단계 완료:", pd.Series([r["status"] for r in guide.values()]).value_counts().to_dict())
+    refresh_newer(guide, fin, gcache, fin_extra)
     if args.stage == "guidance":
         return 0
-
-    refresh_newer(guide, fin, gcache)
 
     # 수동 검토 결과: guidance_overrides.csv (ticker, action[exclude|set], low, high, reason)
     ov_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_overrides.csv")
@@ -418,7 +444,14 @@ def main():
     allrows.sort(key=lambda d: -d["beat"])
     rows = [d for d in allrows if d["beat"] >= args.min_beat and d["beat_hi"] > 0]
     print(f"가이던스 비교 {len(allrows)}개, 크게 상회 {len(rows)}개")
+    if args.stage == "review":
+        for d in rows:
+            print(f"{d['ticker']:6} Q0 {d['q0_end']} 실제 {d['rev'][0]/1e6:,.0f} | 가이던스 {d['low']/1e6:,.0f}~{d['high']/1e6:,.0f} "
+                  f"| {d['beat']:+.1%} (상단 {d['beat_hi']:+.1%}) [{d['kind']}]\n       {d['snippet'][:300]}")
+        return 0
 
+    for d in rows:
+        d["reviewed"] = True  # 크게 상회 기업은 근거 문장을 원문과 대조해 확인 (guidance_overrides.csv)
     beat_t = [d["ticker"] for d in rows]
     start = (datetime.now(ET).date() - timedelta(days=365))
     while start.weekday() >= 5:
@@ -428,7 +461,8 @@ def main():
     ko = base.load_business_ko()
     for d in rows:
         e = extras.get(d["ticker"], {})
-        d.update(pe=e.get("pe"), fpe=e.get("fpe"), eps_surp=e.get("eps_surp"))
+        pos = lambda v: v if isinstance(v, (int, float)) and v > 0 else None  # noqa: E731  적자·적자 예상은 빈칸
+        d.update(pe=pos(e.get("pe")), fpe=pos(e.get("fpe")), eps_surp=e.get("eps_surp"))
         if d["ticker"] in rets:
             d["p0"], d["p1"], _ = rets[d["ticker"]]
         ind = " / ".join(x for x in (e.get("sector"), e.get("industry")) if x)

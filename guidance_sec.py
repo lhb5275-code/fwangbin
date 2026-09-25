@@ -113,19 +113,24 @@ _REV_WORDS = r"(?i)\b(total\s+)?(net\s+)?(revenues?|sales)\b"
 # 앞으로의 값을 말하는 표현 (문장 안에서 이 위치 이후 금액만 가이던스로 본다)
 _FWD = re.compile(r"(?i)\b(expects?|expected|expecting|anticipates?|anticipated|forecast(?:s|ing)?|projects?|projected|"
                   r"guid(?:e|es|ed|ing|ance)|outlook|to be (?:in the range|between|approximately)|in the range of|"
-                  r"plus or minus)\b")
+                  r"plus or minus|range of|initiating|initiated|estimates?|at least)\b")
+_FWD_VERB = re.compile(r"(?i)\b(expects?|expected|expecting|anticipates?|anticipated|forecast(?:s|ing)?|projects?|projected|"
+                       r"guides|guided|guiding|to be (?:in the range|between|approximately)|in the range of|plus or minus|"
+                       r"initiating|initiated|estimates?|at least|will be)\b")
 _QTR_WORDS = re.compile(r"(?i)\b(quarter|q[1-4]|three months)\b")
 _ANNUAL = re.compile(r"(?i)\b(full[- ]year|fiscal year|annual|full fiscal|calendar year|fy\s?\d{2,4}|"
                      r"(?:for|in|of) (?:fiscal )?20\d\d)\b")
-# 과거 실적을 말하는 표현
+# 과거 실적을 말하는 표현 (강: 실적 문장으로 판단 / 약: 가이던스 문장에도 흔히 쓰임)
 _PAST = re.compile(r"(?i)\b(versus|compared (to|with)|prior quarter|same (period|quarter) (of )?last year|a year ago|"
-                   r"year[- ]ago|was|were|increased|decreased|grew|declined|record|reported|delivered|achieved|"
-                   r"representing|up \d+(\.\d+)?\s?(%|percent)|down \d+(\.\d+)?\s?(%|percent)|higher than|lower than|"
-                   r"year[- ]over[- ]year|up from|raised|raising|reaffirm\w*|maintain\w*)\b")
-# 매출 앞에 오면 '전체 매출'로 보는 단어 (그 외 명사가 오면 부문·제품 매출로 간주)
-_REV_PREFIX_OK = re.compile(r"(?i)^(total|net|consolidated|gaap|quarter|quarterly|q[1-4]|first|second|third|fourth|"
-                            r"fiscal|and|of|the|our|its|in|for|to|expects?|expected|anticipates?|a|an|with|be|is|are|"
-                            r"company|group|\d{4}|(first|second|third|fourth)-quarter|•|▪|l|-|–|\(|revenue|sales)$")
+                   r"was|were|increased|decreased|grew|declined|record|delivered|achieved|up from|raised|raising|"
+                   r"reaffirm\w*|maintain\w*|reported|above|exceed\w*|beat|surpass\w*|ahead of)\b")
+_PAST_WEAK = re.compile(r"(?i)\b(representing|up \d+(\.\d+)?\s?(%|percent)|down \d+(\.\d+)?\s?(%|percent)|"
+                        r"higher than|lower than|year[- ]over[- ]year|year[- ]ago)\b")
+# 매출 바로 앞에 오면 부문·제품 매출로 보는 단어
+_SEGMENT_WORDS = re.compile(r"(?i)^(products?|services?|subscriptions?|subscription|segment|cloud|platform|licens\w*|"
+                            r"hardware|software|recurring|organic|gaming|center|centre|automotive|servers?|storage|"
+                            r"networking|advertising|transaction|interest|fee|merchandise|comparable|same-store|"
+                            r"ai|ai-optimized|isg|csg|arr|backlog|bookings?|in-store|online|digital)$")
 _GROWTH = re.compile(r"(?i)(?:grow\w*|increase\w*|up)\s+(?:by\s+)?(?:approximately\s+|about\s+|in the range of\s+|between\s+)?"
                      r"(-?\d+(?:\.\d+)?)\s?%\s*(?:to|-|–|and)\s*(-?\d+(?:\.\d+)?)\s?%")
 
@@ -154,7 +159,13 @@ def _parse_range(s, default_unit=None):
         lo, hi = _to_usd(m.group(1), m.group(2) or u2, default_unit), _to_usd(m.group(3), u2, default_unit)
         if lo <= hi:
             return lo, hi, "range"
-    m = re.search(rf"(?:approximately|about|around|roughly|of|be|to)\s+{_MONEY}", s, re.I)
+    if default_unit:  # Outlook 표의 '하단 | 상단' 두 칸
+        m = re.search(rf"(?i)\b(?:revenues?|sales)\b\s*{_MONEY}\s+\$\s?({_NUM})\b", s)
+        if m and not m.group(2):
+            lo, hi = _to_usd(m.group(1), None, default_unit), _to_usd(m.group(3), None, default_unit)
+            if lo <= hi <= lo * 1.15:
+                return lo, hi, "range"
+    m = re.search(rf"(?:approximately|about|around|roughly|of|be|to|at least)\s+{_MONEY}", s, re.I)
     if m and (m.group(2) or default_unit):
         v = _to_usd(m.group(1), m.group(2), default_unit)
         return v, v, "point"
@@ -184,6 +195,8 @@ def candidate_spans(text):
             if mu:
                 unit = {"millions": "million", "billions": "billion", "thousands": "thousand"}[mu.group(1).lower()]
         cand = u
+        if re.search(r"(?i)\b(and|to|between|of|approximately)$|[-–]$", u) and i + 1 < len(units):
+            cand = cand + " " + units[i + 1]  # 줄바꿈으로 끊긴 범위 ('between $1.91 billion and' / '$2.05 billion')
         if re.search(_REV_WORDS, u) and "$" not in u and len(u) < 80:
             for j in (1, 2):  # 라벨 줄 + 값 줄
                 if i + j < len(units):
@@ -198,15 +211,45 @@ def candidate_spans(text):
 
 
 def _is_segment(s):
-    """'Product revenue', 'Electrification: Revenue' 처럼 매출 앞에 부문명이 붙으면 True."""
+    """'Product revenue', 'Subscription revenues', 'Electrification: Revenue' 처럼 부문·제품 매출이면 True."""
     m = re.search(r"(?i)\b(revenues?|sales)\b", s)
     if not m:
         return False
     before = s[: m.start()].rstrip()
-    if re.search(r"[A-Za-z][\w&' -]{2,40}\s*:\s*$", before) and not re.search(r"(?i)(total|net)\s*:\s*$", before):
+    if re.search(r"[A-Za-z][\w&' -]{2,40}\s*:\s*$", before) and not re.search(r"(?i)(total|net|outlook)\s*:\s*$", before):
         return True
-    words = before.split()
-    return bool(words) and not _REV_PREFIX_OK.match(words[-1].strip(",;:"))
+    words = [w.strip(",;:()•▪◦●") for w in before.split()]
+    words = [w for w in words if w]
+    if not words:
+        return False
+    last = words[-1]
+    if last.lower() in ("net", "total") and len(words) > 1:
+        last = words[-2]  # 'Siding Net Sales' → 'Siding'
+        if last.lower() in ("total", "consolidated", "the", "our", "its", "of", "and", "company", "expects", "expect"):
+            return False
+    if _SEGMENT_WORDS.match(last):
+        return True
+    # 대문자로 시작하는 고유 명사(부문명)가 바로 앞: 'Agriculture Net Sales', 'Mission Technologies Revenue'
+    ok_caps = re.compile(r"(?i)^(total|net|consolidated|company|quarterly|quarter|fiscal|gaap|q[1-4]|fy\d{2,4}|first|second|"
+                         r"third|fourth|(first|second|third|fourth)-quarter|the|our|its|group|\d{4}|outlook|guidance|"
+                         r"expected|expects?|estimated|projected|forecasted?|and|of|for|in|to)$")
+    return last[:1].isupper() and not ok_caps.match(last) and not last.isdigit()
+
+
+_OTHER_METRICS = re.compile(r"(?i)\b(ebitda|ebit|sg&a|expenses?|income|margin|eps|earnings|per share|cash flow|capex|"
+                            r"capital expenditures|dividend|interest|tax|opex|operating profit|gross profit|backlog|"
+                            r"bookings|arr|purchase|sales price|proceeds)\b")
+
+
+def _metric_is_revenue(body):
+    """첫 금액 바로 앞의 지표가 매출인지 확인 (예: 'Adjusted EBITDA ... $370 million' 은 False)."""
+    m = re.search(r"\$", body)
+    if not m:
+        return True
+    before = body[: m.start()]
+    last_rev = max((x.end() for x in re.finditer(r"(?i)\b(revenues?|sales)\b", before)), default=-1)
+    last_other = max((x.end() for x in _OTHER_METRICS.finditer(before)), default=-1)
+    return last_rev >= 0 and last_rev > last_other
 
 
 def extract_revenue_guidance(texts, actual_rev, prior_year_rev=None):
@@ -222,15 +265,22 @@ def extract_revenue_guidance(texts, actual_rev, prior_year_rev=None):
             if _is_segment(s):
                 continue  # 부문·제품 매출
             fwd = _FWD.search(s)
-            past = _PAST.search(s)
+            strong_past = _PAST.search(s)
+            past = strong_past or (not in_sec and _PAST_WEAK.search(s))
             body = s
             if past:
-                if not fwd:
-                    continue  # 과거 실적 문장
+                verb = _FWD_VERB.search(s)
+                if not verb:
+                    continue  # 과거 실적 문장 ('guidance'·'outlook' 명사만 있으면 '가이던스 상회' 같은 실적 문장)
+                fwd = verb
                 body = s[fwd.start():]  # 실적+가이던스가 섞인 문장: 전망 표현 뒤만 사용
             elif not fwd and not in_sec:
                 continue
             rng = _parse_range(body, dunit)
+            if rng and dunit is None and actual_rev and not 0.6 <= actual_rev / max((rng[0] + rng[1]) / 2, 1) <= 1.6:
+                alt = _parse_range(body, "million")  # 단위 없이 백만 달러로 쓴 표 ('Revenue $1,420 - $1,430')
+                if alt and 0.6 <= actual_rev / max((alt[0] + alt[1]) / 2, 1) <= 1.6:
+                    rng = alt
             kind_extra = ""
             if rng is None and prior_year_rev and _GROWTH.search(body) and _QTR_WORDS.search(s):
                 g = _GROWTH.search(body)
@@ -240,6 +290,12 @@ def extract_revenue_guidance(texts, actual_rev, prior_year_rev=None):
             if rng is None:
                 continue
             lo, hi, kind = rng
+            if not _metric_is_revenue(body):
+                continue  # 금액이 EBITDA·SG&A·EPS 등 다른 지표에 붙어 있음
+            if kind == "point" and not _FWD_VERB.search(s) and not re.search(r"(?i)\b(approximately|about|around|roughly)\b", s):
+                continue
+            if kind == "range" and re.search(r"%", body) and re.search(rf"{_MONEY}\s+\$\s?({_NUM})\s+.*%", body):
+                continue  # '매출 $A $B (2%) 20%' 식의 과거 비교표
             mid = (lo + hi) / 2
             if not actual_rev or mid <= 0:
                 continue

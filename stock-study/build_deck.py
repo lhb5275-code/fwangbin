@@ -653,7 +653,7 @@ class DeckBuilder:
         data = ([header] if header else []) + rows
         nr, nc = len(data), max(len(r) for r in data)
         size = t.get("font_size", 16 if style == "grid" else 11)
-        row_h = size * 1.9 / 72
+        row_h = t.get("row_height", size * 1.9 / 72)
         th = min(h, row_h * nr)
         tw = t.get("width", w)
         tx = x + (w - tw) / 2

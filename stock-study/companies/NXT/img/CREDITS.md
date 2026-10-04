@@ -8,3 +8,5 @@
 - `datacenter.jpg` ← https://en.wikipedia.org/wiki/Data_center (파일: Data_Center_of_CNPC.jpg)
 - 주주서한 이미지(`bess_site`, `tracker_field`, `handshake`, `bess_unit`, `inverter_pcs`, `solar_storage`, `zimmermann`, `europe_map`, `bifacial`, `zimmermann_agri`, `engineer`) ← Nextpower Q1 FY2027 Shareholder Letter (사용자 제공 PDF)
 - `shugar.jpg`, `wenger.jpg` ← 주주서한 4쪽 경영진 사진
+- `fed.jpg` ← https://en.wikipedia.org/wiki/Marriner_S._Eccles_Federal_Reserve_Board_Building (파일: Eccles_Building_(26088200676).jpg)
+- `capitol.jpg` ← https://commons.wikimedia.org/wiki/File:United_States_Capitol_west_front_edit2.jpg

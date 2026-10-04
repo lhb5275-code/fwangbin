@@ -1,0 +1,258 @@
+# 양식 확인용 샘플: '구글 기업분석' 예시 덱의 문장 일부 + fetch_data.py로 받은 실제 데이터.
+# 새 종목은 이 파일을 복사해 companies/<TICKER>/deck.yaml로 만들고 내용을 바꾼다.
+company: 구글                 # 표지에 크게 들어갈 이름
+ticker: GOOGL
+logo: img/alphabet_logo.png   # 제목 탭 왼쪽 로고 (없으면 logo_text를 brand_color로 표시)
+logo_text: Alphabet
+brand_color: EA4335
+cover_image: img/google_logo.png
+data: data/data.json          # fetch_data.py 결과 (차트 source: 에 사용)
+output: GOOGL_sample_기업분석.pptx
+
+slides:
+  - type: cover
+    notes: 오늘 공부할 기업은 구글 입니다.
+
+  - title: 주가 흐름
+    chart: {source: price_1y}
+    source: Yahoo Finance, SEC 10-Q
+    notes: |
+      알파벳 주가는 최근 1년 동안 이렇게 움직였습니다.
+      (차트의 주가·시가총액은 fetch_data.py를 실행한 날 기준으로 자동 갱신됩니다.)
+
+  - title: 사업한줄평
+    lines:
+      - "온라인 [[광고]], [[클라우드]] 솔루션, [[구독]] 서비스 및 인앱 결제를 통해 수익 창출"
+    image: img/googleplex.jpg
+    notes: |
+      알파벳은 온라인 광고, 클라우드 솔루션, 구독 서비스 및
+      인앱 결제 등을 통해 수익을 창출하는
+      글로벌 IT 회사입니다.
+
+  - title: 역사
+    lines:
+      - "(1995)  [[Larry Page]]와 [[Sergey Brin]], 스탠포드 캠퍼스에서 조우"
+    images: [img/larry_page.jpg, img/sergey_brin.jpg]
+    notes: |
+      먼저 회사 역사를 설명드리겠습니다.
+      지금으로부터 30년 전인 1995년,
+      스탠포드 대학교 박사과정 대학원생이었던
+      래리 페이지와 세르게이 브린이 서로를 만납니다.
+
+  - title: 역사
+    lines:
+      - "(2015)  지주회사 [[Alphabet]] 설립"
+      - "- 자회사:  Google , [[Other Bets]]"
+    image: img/alphabet_logo.png
+    notes: |
+      구글은 방대해진 사업 구조를 효율적으로 처리하기 위해
+      2015년, 알파벳 지주회사 체제로 전환했습니다.
+      (나)
+      핵심 사업은 구글 산하에 두고
+      자율주행이나 생명과학 같은 미래 사업은
+      Other bets 라는 별도 자회사로 분리했습니다.
+
+  - title: CEO
+    layout: left
+    media_width: 4.6
+    image: img/sundar_pichai.jpg
+    lines:
+      - "[[Sundar Pichai]]  (1972년생)"
+      - ""
+      - "인도 IIT Kharagpur 금속공학 학사"
+      - "미국 스탠포드 대학교 재료과학 석사"
+      - "미국 펜실베니아 대학교 와튼스쿨 MBA"
+      - ""
+      - "(2004)  구글 입사"
+      - "- Search, Chrome, Maps, Android, Gmail 등"
+      - ""
+      - "(2015~)  구글 CEO"
+      - "(2019~)  알파벳 CEO"
+    notes: |
+      CEO는 누구일까요?
+      (나)
+      순다르 피차이는 1972년생으로
+      인도의 IIT 카락푸르에서 금속공학 학사,
+      스탠퍼드 대학교에서 재료과학 석사,
+      그리고 펜실베니아 대학교 와튼스쿨에서 MBA 과정을 밟았습니다.
+      (나)
+      2004년에 구글에 입사한 이후
+      서치, 크롬, 맵스, 안드로이드, 지메일 같은
+      핵심 제품 관리를 주도하며 초고속 승진을 거듭했습니다.
+      (나)
+      결국 2015년에 구글의 CEO로 취임했고
+      2019년부터 현재까지 알파벳의 CEO를 겸임하고 있습니다.
+
+  - type: segments
+    title: 매출 구성
+    segments:
+      - name: "1) Google Services"
+        items: ["Advertising", "Subscriptions, Platforms and Devices"]
+      - name: "2) Google Cloud"
+      - name: "3) Other Bets"
+    images: [img/youtube_logo.png, img/google_cloud_logo.png, img/waymo_logo.png]
+    source: Alphabet 10-K
+    notes: |
+      알파벳은 돈을 어떻게 벌까요?
+      크게 세가지로 나눠볼 수 있습니다.
+      (나)
+      첫번째는 구글 서비스로 안드로이드, 크롬, 유튜브가 여기에 포함됩니다.
+      광고 매출과 구독 매출이 주를 이룹니다.
+      (나)
+      두번째는 기업 고객을 대상으로 하는 구글 클라우드 사업입니다.
+      (나)
+      마지막 세번째는 Other Bets 로, 현재 주 매출원은 자율주행 서비스 웨이모 입니다.
+
+  - title: 연도별 실적 추이
+    charts:
+      - {source: annual.revenue, n: 4, title: "매출"}
+      - {source: annual.eps_diluted, n: 4, title: "희석 EPS"}
+      - {source: annual.diluted_shares, n: 4, title: "희석 주식수 (억주)"}
+    source: SEC 10-K (XBRL)
+    notes: |
+      연도별 실적 추이를 보겠습니다.
+      (나)
+      알파벳은 2022년 매출 2,828억 달러를 기록했는데
+      2025년 4,028억 달러까지 꾸준히 10% 내외 성장하고 있습니다.
+      (나)
+      EPS도 2022년 4.56달러에서 2025년 10.81달러로 폭발적으로 증가했습니다.
+      (나)
+      그 와중에 자사주를 꾸준히 매입해
+      희석 주식수는 131.6억주에서 122.3억주로 감소했습니다.
+
+  - title: 주식 종류
+    table:
+      header: ["", "Class A (GOOGL)", "Class B (비상장)", "Class C (GOOG)"]
+      rows:
+        - ["의결권", "1주당 1표", "1주당 10표", "없음"]
+        - ["경제적 지분, 배당 권리 등", "동일", "", ""]
+      merge: [[2, 1, 2, 3]]
+      head_col: true
+      col_widths: [1.3, 1, 1, 1]
+      font_size: 18
+    notes: |
+      주식창에 알파벳을 검색하시면 티커 GOOG와 GOOGL, 이 두 가지가 나옵니다.
+      (나)
+      GOOGL은 Class A 보통주이고 GOOG는 Class C 주식입니다.
+      (나)
+      차이점은 단 하나, 의결권입니다.
+      Class A 는 1주당 1표, Class B는 1주당 10표를 행사할 수 있지만
+      Class C는 의결권이 없습니다.
+      이걸 제외하면 경제적 지분 및 배당권리가 셋 다 동일합니다.
+
+  - type: section
+    text: "2026-1분기 실적"
+    subtitle: "Alphabet Q1 2026 Earnings"
+    notes: |
+      실적이 어떻게 나왔을지 궁금하시죠?
+      4월말에 발표된 1분기 어닝콜을 정리해드리겠습니다.
+
+  - title: 2026-1분기 손익계산서
+    layout: right
+    text_width: 7.3
+    lines:
+      - "매출:  [[$1,099억]]  (YoY {{+22%}})"
+      - ""
+      - "매출총이익:  [[$686억]]  (YoY {{+27%}})"
+      - ""
+      - "영업이익:  [[$397억]]  (YoY {{+30%}})"
+      - "- 영업이익률:  [[36.1%]]  (YoY {{+2.2%}})"
+      - "- 연구개발비:  $170억  (YoY {{+26%}})"
+      - ""
+      - "당기순이익:  [[$626억]]  (YoY {{+81%}})"
+      - "- 비시장성 증권 평가이익:  [[$367억]]  (YoY {{+278%}})"
+      - ""
+      - "희석 EPS:  [[$5.11]]  (YoY {{+81%}})"
+    table:
+      style: statement
+      font_size: 11
+      header: ["(단위: 백만 달러)", "1Q25", "1Q26"]
+      rows:
+        - ["Revenues", "90,234", "109,896"]
+        - ["Cost of revenues", "36,361", "41,271"]
+        - ["Research and development", "13,556", "[[17,032]]"]
+        - ["Income from operations", "30,606", "[[39,696]]"]
+        - ["Other income (expense), net", "11,183", "[[37,716]]"]
+        - ["Net income", "34,540", "[[62,578]]"]
+        - ["Diluted EPS ($)", "2.81", "[[5.11]]"]
+    source: Alphabet 2026-1Q 10-Q
+    notes: |
+      이제 1분기 손익계산서를 보겠습니다.
+      (나)
+      매출은 전년동기대비 22% 성장해 1,099억 달러를 기록했습니다.
+      (나)
+      매출총이익은 27% 증가한 686억 달러를 기록했습니다.
+      (나)
+      영업이익은 30% 증가해 397억 달러, 영업이익률은 36.1%를 기록했습니다.
+      (나)
+      당기순이익과 희석 EPS는 전년대비 81% 폭증했는데
+      비상장 증권 평가이익이 크게 늘었기 때문입니다.
+
+  - title: CapEx 가이던스 상향
+    chart:
+      source: annual.capex
+      n: 3
+      append_categories: ["2026"]
+      append_values: [1850]
+      append_labels: ["$1,800~1,900억"]
+    source: Alphabet 10-K, 2026-1Q 실적발표
+    notes: |
+      한편 구글은 올해 연간 CapEx 가이던스를
+      1,750억~1,850억 달러에서
+      1,800억~1,900억 달러로 상향했습니다.
+
+  - title: 투자 리스크 (1)
+    lines:
+      - "급증하는 CapEx"
+      - "- 매출액 대비 CapEx 급증"
+    chart:
+      categories: ["2023", "2024", "2025", "2026"]
+      values: [323, 525, 914, 1850]
+      labels: ["$323억", "$525억", "$914억", "$1,800~1,900억"]
+      top_labels: ["10.5%", "15%", "23%", "40%"]
+      future: [3]
+    source: SEC 10-K, 회사 가이던스
+    notes: |
+      실제로 매출액 대비 CapEx 비율은
+      (나)
+      2023년 10%,
+      (나)
+      2024년 15%,
+      (나)
+      그리고 2025년 23% 까지 늘어났습니다.
+      (나)
+      2026년에는 이 비율이 40%까지 치솟을 예정입니다.
+
+  - type: section
+    text: "Q & A"
+    notes: |
+      어닝콜 후 경영진과 애널리스트 간의 Q&A 가 있었습니다.
+      주요 문답을 정리해드리겠습니다.
+
+  - type: qa
+    q: "[[구글 검색 쿼리]]가 사상 [[최고치]]를 기록 중인데, 그 이유가 무엇인가요?"
+    a:
+      - "‘{{AI 개요}}’와 ‘{{AI 모드}}’가 검색 쿼리 증가를 견인하고 있습니다."
+      - "역사적으로 광고를 노출해 온 쿼리 비중이 약 {{20%}} 수준이었는데,"
+      - "AI가 사용자의 {{검색 의도}}를 더 잘 이해하게 됨에 따라"
+      - "향후에 광고 커버리지가 더 {{확대}}될 수 있다고 생각합니다."
+    source: Alphabet 2026-1Q 어닝콜
+    notes: |
+      첫번째 질문입니다.
+      구글 검색 쿼리가 사상 최고치를 기록 중인데 그 이유가 무엇인지 물었습니다.
+
+  - title: 투자 포인트 (1)
+    lines:
+      - "수직계열화된 [[AI 풀 스택]] 플랫폼"
+      - "- 모델(Gemini) · 칩(TPU) · 클라우드 · 플랫폼(Search, YouTube, Gmail)"
+    images: [img/google_cloud_logo.png, img/youtube_logo.png]
+    notes: |
+      이제 투자포인트와 리스크를 생각해보겠습니다.
+      첫번째 투자포인트는 구글이 수직계열화된
+      AI 풀스택 플랫폼을 보유하고 있다는 점입니다.
+
+  - type: end
+    notes: |
+      이상 구글의 기업분석을 마치겠습니다.
+      영상이 도움되셨다면 구독, 좋아요, 댓글 꼭 부탁드립니다.
+      큰 힘이 됩니다. 감사합니다.

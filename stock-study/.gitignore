@@ -1,0 +1,4 @@
+# SEC 원본 XBRL (수 MB, fetch_data.py로 언제든 다시 받을 수 있음)
+companies/*/data/companyfacts.json
+__pycache__/
+*.pdf

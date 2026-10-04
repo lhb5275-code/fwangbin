@@ -241,6 +241,28 @@ def shares_outstanding(facts: dict):
     return None, None
 
 
+def cover_shares(url: str):
+    """10-Q/10-K 표지의 'As of <날짜>, there were N shares of ... common stock outstanding' 문장 파싱."""
+    import html as _html
+    import re as _re
+    try:
+        t = get(url).decode("utf-8", "ignore")
+    except Exception:
+        return None, None
+    t = _re.sub(r"\s+", " ", _html.unescape(_re.sub(r"<[^>]+>", " ", t)))
+    m = _re.search(r"As of ([A-Z][a-z]+ \d{1,2}, \d{4})[^.]{0,400}?shares", t)
+    if not m:
+        return None, None
+    window = t[m.start(): m.start() + 700]
+    nums = _re.findall(r"([\d,]{7,})\s+shares\s+of", window)
+    total = sum(int(n.replace(",", "")) for n in nums)
+    try:
+        date = dt.datetime.strptime(m.group(1), "%B %d, %Y").date().isoformat()
+    except ValueError:
+        date = None
+    return (total or None), date
+
+
 def recent_filings(sub: dict, cik: str, n: int = 12):
     rec = sub["filings"]["recent"]
     out = []
@@ -276,13 +298,20 @@ def yahoo_chart(ticker: str, rng: str, interval: str):
 
 # ---------------------------------------------------------------- 서식
 def eok(v: float | None, signed: bool = False) -> str:
-    """달러 → '$1,099억' 표기 (1억 달러 단위)."""
+    """달러 → '$1,099억' / '$9.35억' / '$4,451만' 표기."""
     if v is None:
         return "-"
-    x = v / 1e8
-    s = f"{abs(x):,.0f}" if abs(x) >= 10 else f"{abs(x):,.1f}"
+    x = abs(v) / 1e8
+    if x >= 100:
+        s = f"{x:,.0f}억"
+    elif x >= 10:
+        s = f"{x:,.1f}억"
+    elif x >= 1:
+        s = f"{x:,.2f}억"
+    else:
+        s = f"{abs(v) / 1e4:,.0f}만"
     sign = "-" if v < 0 else ("+" if signed else "")
-    return f"{sign}${s}억"
+    return f"{sign}${s}"
 
 
 def pct(a: float | None, b: float | None) -> str:
@@ -352,6 +381,12 @@ def build(ticker: str, out: Path):
         data[scope]["fcf"] = {k: {**v, "value": v["value"] - cap[k]["value"]} for k, v in cfo.items() if k in cap}
 
     so, so_date = shares_outstanding(facts)
+    # XBRL 표지 값이 오래됐으면 최신 10-Q/10-K 표지 문장에서 발행주식수를 읽는다
+    latest_doc = next((f for f in data["filings"] if f["form"] in ("10-Q", "10-K")), None)
+    if latest_doc and (not so_date or (d(latest_doc["period"]) - d(so_date)).days > 120):
+        c_so, c_date = cover_shares(latest_doc["url"])
+        if c_so:
+            so, so_date = c_so, c_date
     data["shares_outstanding"] = so
     data["shares_outstanding_date"] = so_date
 
@@ -411,7 +446,7 @@ def summary(data: dict) -> str:
         if pr.get("change_1y_pct") is not None:
             L.append(f"- 1년 수익률: {pr['change_1y_pct']:+.1f}%")
         if v.get("market_cap"):
-            L.append(f"- 시가총액: {eok(v['market_cap'])} (≈ ${v['market_cap'] / 1e12:,.2f}조) "
+            L.append(f"- 시가총액: {eok(v['market_cap'])}" + (f" (≈ ${v['market_cap'] / 1e12:,.2f}조)" if v['market_cap'] >= 1e12 else "") + " "
                      f"· 발행주식수 {data['shares_outstanding'] / 1e8:,.1f}억주 ({data['shares_outstanding_date']} 기준)")
         if v.get("trailing_pe"):
             L.append(f"- Trailing P/E: {v['trailing_pe']:.1f}배 (TTM 희석 EPS ${v['ttm_eps_diluted']:.2f})")

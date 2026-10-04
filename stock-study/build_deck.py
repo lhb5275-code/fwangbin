@@ -429,7 +429,8 @@ class DeckBuilder:
             elif shares:
                 labels = [f"{x:,.1f}" for x in vals]
             else:
-                labels = [f"${x:,.0f}억" if abs(x) >= 10 else f"${x:,.1f}억" for x in vals]
+                labels = [f"${x:,.0f}억" if abs(x) >= 100 else (f"${x:,.1f}억" if abs(x) >= 10 else f"${x:,.2f}억")
+                          for x in vals]
             auto = {"type": "bar", "categories": cats, "values": vals, "labels": labels}
         out = {**auto, **{k: v for k, v in c.items() if k != "source"}}
         # 전망치 덧붙이기 (예: 회사 CapEx 가이던스)

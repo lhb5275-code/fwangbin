@@ -435,7 +435,7 @@ class DeckBuilder:
                 mc = v["market_cap"]
                 stats.append(("시가총액", f"${mc / 1e12:,.2f}조" if mc >= 1e12 else f"${mc / 1e8:,.0f}억"))
             if v.get("trailing_pe"):
-                stats.append(("P/E", f"{v['trailing_pe']:.1f}배"))
+                stats.append(("P/E", f"{v['trailing_pe']:.1f}배" if v["trailing_pe"] > 0 else "적자"))
             if not until:
                 stats.append(("배당수익률", f"{v['dividend_yield_pct']:.2f}%" if v.get("dividend_yield_pct") else "-"))
             if pr.get("high_52w"):

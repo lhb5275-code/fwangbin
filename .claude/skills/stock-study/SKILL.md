@@ -44,7 +44,7 @@ python fetch_data.py <TICKER>        # companies/<TICKER>/data/{data.json, summa
 
 - `STYLE.md`의 '슬라이드 구성' 순서를 따른다. 보통 40~80장이다. 역사와 사업 성과는 한 장에 한 사건씩 나눈다.
 - 핵심 수치는 `[[노랑]]`, 증감률·'상회'는 `{{연두}}`, 전망치는 `((살구))`로 강조한다.
-- 모든 장에 `notes`(발표 대본)를 쓴다. 문체는 '~습니다'체 구어, 짧은 줄로 끊는다. 애니메이션 지점에 `(나)`를 넣는다.
+- 모든 장에 `notes`(발표 대본)를 쓴다. 문체는 '~습니다'체 구어, 짧은 줄로 끊는다. `(나)`·`(모핑)` 같은 애니메이션 표시는 쓰지 않는다.
 - 수치가 들어간 장에는 `source:`를 단다.
 - 주가·시가총액에는 기준일을 쓴다.
 - 차트는 `source: price_1y`, `annual.<지표>`, `quarterly.<지표>`로 data.json에서 채운다. 가이던스 같은 전망치는 `append_*`로 덧붙인다.
@@ -53,8 +53,12 @@ python fetch_data.py <TICKER>        # companies/<TICKER>/data/{data.json, summa
 
 ```bash
 python fetch_media.py commons "<Commons 파일명>" companies/<T>/img/logo.png --width 800
-python fetch_media.py wiki "<영문 문서 제목>" companies/<T>/img/ceo.jpg
+python fetch_media.py wiki "<영문 문서 제목>" companies/<T>/img/ceo.jpg      # 기본 2560px 고화질
+python fetch_media.py pdf <사용자 PDF> companies/<T>/img/pdf                  # PDF 속 사진을 원본 해상도로
 ```
+
+- 사진은 항상 고화질로 쓴다. 썸네일로 줄이거나 낮은 품질로 다시 저장하지 않는다. PDF에서 꺼낸 PNG를 JPEG로 바꿀 때는 원래 크기 그대로 품질 95 이상으로 저장한다.
+- 원본이 작은 사진(대략 폭 800px 미만)은 위키미디어 공용 검색 등으로 더 큰 사진을 먼저 찾는다. 없으면 작게 배치하고 답변에 알린다.
 
 - 로고: 위키미디어 공용의 회사 로고 SVG. 제목 탭(흰 배경)용과 표지(검정 배경)용이 다를 수 있다.
 - 인물·사옥·제품 사진: 위키백과 대표 이미지.
@@ -73,6 +77,9 @@ python <pptx 스킬>/scripts/office/validate.py output/<TICKER>_기업분석.ppt
 1. LibreOffice Impress가 없으면 `apt-get install -y libreoffice-impress fonts-noto-cjk`로 설치한다.
 2. PDF로 바꾸고 `pdftoppm`으로 이미지를 만든다.
 3. 모든 장을 본다. 글자 넘침, 겹침, 빈 공간, 잘린 라벨을 고친 뒤 다시 만든다.
+   막대그래프는 숫자가 막대나 옆 숫자에 가리지 않는지 특히 확인하고, 가리면 `font_size`를 줄이거나 막대 수를 줄인다.
+
+슬라이드 사이 화면 전환 효과는 넣지 않는다 (생성기가 넣지 않음).
 
 ## 6. 전달
 

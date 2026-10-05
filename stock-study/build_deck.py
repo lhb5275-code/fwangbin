@@ -11,7 +11,7 @@ companies/<TICKER>/deck.yaml 원고를 읽어 '구글 기업분석' 예시와 �
 - 왼쪽 위 흰색 제목 탭: 회사 로고 + 제목 (에스코어 드림 7 ExtraBold 24pt, 검정)
 - 본문: 에스코어 드림 6 Bold 20pt, 흰색. [[노랑 강조]] {{연두 강조}} ((살구 강조))
 - 표지/구역/감사 슬라이드: 여기어때 잘난체 고딕
-- 슬라이드마다 발표 대본(노트), 페이드 전환
+- 슬라이드마다 발표 대본(노트), 화면 전환 효과 없음
 """
 from __future__ import annotations
 
@@ -192,19 +192,6 @@ def set_background(slide, hex_):
     bg.fore_color.rgb = rgb(hex_)
 
 
-def add_fade(slide):
-    sld = slide._element
-    for old in sld.findall(qn("p:transition")):
-        sld.remove(old)
-    tr = etree.Element(qn("p:transition"))
-    tr.set("spd", "slow")
-    etree.SubElement(tr, qn("p:fade"))
-    anchor = sld.find(qn("p:clrMapOvr"))
-    if anchor is None:
-        anchor = sld.find(qn("p:cSld"))
-    anchor.addnext(tr)
-
-
 def image_size(path: Path) -> tuple[int, int]:
     with Image.open(path) as im:
         return im.size
@@ -249,7 +236,6 @@ class DeckBuilder:
     def new_slide(self, bg=BLACK):
         s = self.prs.slides.add_slide(self.blank)
         set_background(s, bg)
-        add_fade(s)
         return s
 
     def title_tab(self, slide, title: str):
@@ -327,8 +313,15 @@ class DeckBuilder:
         set_run_font(r, FONT_BODY, 10, "8A8A8A")
 
     def notes(self, slide, text):
-        if text:
-            slide.notes_slide.notes_text_frame.text = str(text).strip()
+        """발표 대본. 애니메이션 표시 '(나)'·'(모핑)'은 넣지 않는다 (원고에 있어도 지운다)."""
+        if not text:
+            return
+        lines = []
+        for ln in str(text).strip().splitlines():
+            ln = re.sub(r"\((나|모핑)\)", "", ln).rstrip()
+            if ln.strip():
+                lines.append(ln)
+        slide.notes_slide.notes_text_frame.text = "\n".join(lines)
 
     # ---- 미디어 배치
     def place_media(self, slide, sd: dict, area: tuple[float, float, float, float]):
@@ -488,7 +481,22 @@ class DeckBuilder:
         gf.name = c.get("title") or "막대그래프"
         ch = gf.chart
         self._no_fill_chart(ch)
-        size = c.get("font_size", (18 if w > 7 else 14) if len(cats) <= 6 else 12)
+        highlights = c.get("highlight") or []
+        futures = c.get("future") or []
+        labels = c.get("labels") or [None] * len(vals)
+        tops = c.get("top_labels") or [None] * len(vals)
+        fmt = c.get("format", "{:,.0f}")
+        texts = [str(labels[i]) if labels[i] is not None else fmt.format(v) for i, v in enumerate(vals)]
+        base = c.get("font_size", (18 if w > 7 else 14) if len(cats) <= 6 else 12)
+        # 숫자 라벨·항목 이름이 막대 한 칸(slot) 폭 안에 들어가도록 각각 글꼴을 줄인다 (차트 제목은 그대로)
+        slot = w * 0.9 / max(len(vals), 1)
+
+        def fitted(strings):
+            widest = max([text_width(str(t), base) for t in strings if t] + [0.01])
+            return base if widest <= slot * 0.95 else max(8, int(base * slot * 0.95 / widest))
+
+        size = fitted(texts + [t for t in tops if t])
+        cat_size = fitted(cats)
         self._chart_text(ch, size, SKY)
         ch.has_legend = False
         if title:
@@ -497,7 +505,7 @@ class DeckBuilder:
             tf.text = ""
             r = tf.paragraphs[0].add_run()
             r.text = title
-            set_run_font(r, FONT_BODY, size, WHITE)
+            set_run_font(r, FONT_BODY, base, WHITE)
         else:
             ch.has_title = False
             ac = ch._chartSpace.find(qn("c:chart")).find(qn("c:autoTitleDeleted"))
@@ -510,21 +518,25 @@ class DeckBuilder:
         va.visible = False
         va.has_major_gridlines = False
         va.minimum_scale = 0
-        if c.get("max"):
-            va.maximum_scale = float(c["max"])
+        # 가장 높은 막대 위에도 라벨이 들어갈 자리를 만든다 (모자라면 PowerPoint가 라벨을 막대 안으로 넣어 가려짐)
+        line_in = size * 1.25 / 72
+        plot_h = h - (base * 1.8 / 72 if title else 0) - cat_size * 1.6 / 72 - 0.15
+        need = 0.0
+        for i, v in enumerate(vals):
+            lab_h = line_in * (2 if tops[i] else 1) + 0.08
+            if v > 0 and plot_h > lab_h:
+                need = max(need, v * plot_h / (plot_h - lab_h))
+        top = max(need * 1.04, float(c.get("max") or 0))
+        if top > 0:
+            va.maximum_scale = top
         ca = ch.category_axis
         ca.format.line.fill.background()
-        ca.tick_labels.font.size = Pt(size)
+        ca.tick_labels.font.size = Pt(cat_size)
         ca.tick_labels.font.color.rgb = rgb(SKY)
         ca.has_major_gridlines = False
         ser = plot.series[0]
         solid(ser.format, SKY)
         ser.format.line.fill.background()
-        highlights = c.get("highlight") or []
-        futures = c.get("future") or []
-        labels = c.get("labels") or [None] * len(vals)
-        tops = c.get("top_labels") or [None] * len(vals)
-        fmt = c.get("format", "{:,.0f}")
         for i, v in enumerate(vals):
             pt = ser.points[i]
             color = SKY
@@ -544,7 +556,7 @@ class DeckBuilder:
                 r.text = str(tops[i])
                 set_run_font(r, FONT_BODY, size, YELLOW)
                 p = tf.add_paragraph()
-            lab = labels[i] if labels[i] is not None else fmt.format(v)
+            lab = texts[i]
             if lab != "":
                 r = p.add_run()
                 r.text = str(lab)

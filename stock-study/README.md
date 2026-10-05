@@ -8,7 +8,7 @@
 stock-study/
 ├─ build_deck.py        원고(deck.yaml) → .pptx
 ├─ fetch_data.py        SEC 재무 데이터 + 주가 → data/data.json, data/summary.md
-├─ fetch_media.py       위키백과·위키미디어 이미지 내려받기 (출처는 CREDITS.md에 기록)
+├─ fetch_media.py       위키백과·위키미디어·PDF 이미지를 고화질로 받기 (출처는 CREDITS.md에 기록)
 ├─ STYLE.md             글꼴·색·슬라이드 구성 규칙
 ├─ companies/<TICKER>/  종목별 원고, 데이터, 이미지
 └─ output/              완성된 .pptx

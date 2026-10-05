@@ -9,7 +9,9 @@ stock-study/
 ├─ build_deck.py        원고(deck.yaml) → .pptx
 ├─ fetch_data.py        SEC 재무 데이터 + 주가 → data/data.json, data/summary.md
 ├─ fetch_media.py       위키백과·위키미디어·PDF 이미지를 고화질로 받기 (출처는 CREDITS.md에 기록)
-├─ STYLE.md             글꼴·색·슬라이드 구성 규칙
+├─ render_slide.py      지난 덱의 슬라이드를 이미지로 (F/U 덱의 '지난 분석 회고'용)
+├─ STYLE.md             글꼴·색·슬라이드 구성 규칙 (신규 분석)
+├─ STYLE_FU.md          F/U(실적 리뷰) 양식
 ├─ companies/<TICKER>/  종목별 원고, 데이터, 이미지
 └─ output/              완성된 .pptx
 ```
@@ -60,6 +62,12 @@ slides:
 | `section` | 흰 구역 머리 | `text`, `subtitle` |
 | `qa` | 어닝콜 Q&A | `q`, `a` (문자열 또는 목록) |
 | `end` | 감사합니다 | `image`, `text` |
+| `fu_cover` | F/U 표지 (주제 사진 + 회사명 + 후킹 문구) | `image`, `hook: "[[$1,300]] 간다?"`, `dim`, `logo_small` |
+| `full_image` | 사진 한 장 전면 (IR 자료 표지, 행사 사진, 끝 장) | `image`, `fit`, `tab: 감사합니다` |
+| `quote` | CEO 한마디 (오른쪽 인물 사진 + 인용문) | `image`, `quote: [줄, …]`, `by` |
+| `guidance` | 최근 분기 + 다음 분기 가이던스 차트 | `quarters`, `revenue`, `revenue_labels`, `growth`, `margin`, `eps`, `guidance_index` |
+
+모든 슬라이드에 `date: "2026-05-10"`을 주면 오른쪽 위에 기준일이 붙습니다. 차트 `source:`에 `until: "2026-05-08"`을 주면 그날까지의 데이터만 씁니다 (실적 발표 시점 기준 F/U 덱). F/U 양식은 [STYLE_FU.md](STYLE_FU.md), 예시는 `companies/LITE_fu_sample/deck_fu.yaml`에 있습니다.
 
 차트는 직접 값을 넣거나 `data.json`에서 자동으로 채울 수 있습니다.
 

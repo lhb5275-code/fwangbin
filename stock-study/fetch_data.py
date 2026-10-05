@@ -391,7 +391,10 @@ def build(ticker: str, out: Path):
     data["shares_outstanding_date"] = so_date
 
     # 주가
-    meta, daily = yahoo_chart(ticker, "1y", "1d")
+    meta, daily2 = yahoo_chart(ticker, "2y", "1d")
+    # 최근 1년 (F/U 덱에서 과거 기준일 주가 화면이 필요할 때를 위해 2년치도 저장)
+    cutoff = (d(daily2[-1][0]) - dt.timedelta(days=365)).isoformat() if daily2 else ""
+    daily = [p for p in daily2 if p[0] >= cutoff]
     _, weekly = yahoo_chart(ticker, "5y", "1wk")
     price = {}
     if meta:
@@ -404,6 +407,7 @@ def build(ticker: str, out: Path):
             price["change_1y_pct"] = (daily[-1][1] / daily[0][1] - 1) * 100
     data["price"] = price
     data["price_daily_1y"] = daily
+    data["price_daily_2y"] = daily2
     data["price_weekly_5y"] = weekly
 
     # 밸류에이션

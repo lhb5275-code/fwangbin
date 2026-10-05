@@ -38,6 +38,7 @@ SLIDE_W, SLIDE_H = 13.333, 7.5
 FONT_BODY = "에스코어 드림 6 Bold"
 FONT_TITLE = "에스코어 드림 7 ExtraBold"
 FONT_DISPLAY = "여기어때 잘난체 고딕"
+FONT_LIGHT = "에스코어 드림 4 Regular"   # 기준일 표기 등 보조 글자
 
 BLACK = "000000"
 WHITE = "FFFFFF"
@@ -50,6 +51,8 @@ TABLE_HEAD = "DAF2D0"   # 표 머리글 (Office accent6, 밝기 +80%)
 GRAY = "9AA0A6"
 DARK = "202124"
 UP_RED = "D93025"       # 주가 상승선 (국내 관례: 상승=빨강)
+METRIC_RED = "FF0000"   # 가이던스 차트: 영업이익률
+METRIC_GREEN = "00B050" # 가이던스 차트: EPS
 DOWN_BLUE = "1A73E8"
 
 TAB_Y, TAB_H = 0.30, 0.47
@@ -190,6 +193,36 @@ def set_background(slide, hex_):
     bg = slide.background.fill
     bg.solid()
     bg.fore_color.rgb = rgb(hex_)
+
+
+def add_glow(run, color: str = BLACK, rad_pt: float = 10):
+    """사진 위 글자가 잘 보이도록 글자 주위에 번지는 그림자(광선) 효과를 준다."""
+    rPr = run._r.get_or_add_rPr()
+    eff = etree.Element(qn("a:effectLst"))
+    glow = etree.SubElement(eff, qn("a:glow"))
+    glow.set("rad", str(int(rad_pt * 12700)))
+    c = etree.SubElement(glow, qn("a:srgbClr"))
+    c.set("val", color)
+    anchor = rPr.find(qn("a:highlight"))
+    if anchor is None:
+        anchor = rPr.find(qn("a:latin"))
+    anchor.addprevious(eff)
+
+
+def add_fill_picture(slide, path: Path, x: float, y: float, w: float, h: float, name: str | None = None):
+    """상자를 꽉 채우도록 사진을 넣고, 비율이 안 맞는 부분은 잘라낸다 (늘이지 않음)."""
+    pw, ph = image_size(path)
+    pic = slide.shapes.add_picture(str(path), Inches(x), Inches(y), Inches(w), Inches(h))
+    box_ar, img_ar = w / h, pw / ph
+    if img_ar > box_ar:          # 사진이 더 넓다 → 좌우를 자름
+        cut = (1 - box_ar / img_ar) / 2
+        pic.crop_left = pic.crop_right = cut
+    elif img_ar < box_ar:        # 사진이 더 길다 → 위아래를 자름 (위쪽은 덜 잘라 얼굴·간판 보존)
+        cut = 1 - img_ar / box_ar
+        pic.crop_top, pic.crop_bottom = cut * 0.3, cut * 0.7
+    if name:
+        pic.name = name
+    return pic
 
 
 def image_size(path: Path) -> tuple[int, int]:
@@ -376,6 +409,20 @@ class DeckBuilder:
         if src in ("price_1y", "price_5y"):
             pts = D["price_daily_1y"] if src == "price_1y" else D["price_weekly_5y"]
             pr, v = D.get("price", {}), D.get("valuation", {})
+            until = str(c.get("until") or "")
+            if until:
+                # 과거 기준일의 주가 화면 (F/U에서 '지난 분석 당시' 등). 시가총액 외 현재 기준 지표는 뺀다.
+                import datetime as _dt
+                pool = D.get("price_daily_2y") or D["price_weekly_5y"] if src == "price_1y" else D["price_weekly_5y"]
+                days = 365 if src == "price_1y" else 365 * 5
+                end = _dt.date.fromisoformat(until)
+                start = (end - _dt.timedelta(days=days)).isoformat()
+                pts = [p for p in pool if start <= p[0] <= until]
+                if not pts:
+                    raise ValueError(f"{until} 이전 주가 데이터가 없습니다 (fetch_data.py를 다시 실행)")
+                hi, lo = max(p[1] for p in pts), min(p[1] for p in pts)
+                v = {"market_cap": float(c["market_cap"])} if c.get("market_cap") else {}
+                pr = {**pr, "high_52w": hi, "low_52w": lo}
             first, last = pts[0][1], pts[-1][1]
             # 축에는 매월(5년이면 매년) 첫 거래일만 이름을 붙인다. 나머지는 빈 이름.
             dates, prev = [], None
@@ -389,11 +436,12 @@ class DeckBuilder:
                 stats.append(("시가총액", f"${mc / 1e12:,.2f}조" if mc >= 1e12 else f"${mc / 1e8:,.0f}억"))
             if v.get("trailing_pe"):
                 stats.append(("P/E", f"{v['trailing_pe']:.1f}배"))
-            stats.append(("배당수익률", f"{v['dividend_yield_pct']:.2f}%" if v.get("dividend_yield_pct") else "-"))
+            if not until:
+                stats.append(("배당수익률", f"{v['dividend_yield_pct']:.2f}%" if v.get("dividend_yield_pct") else "-"))
             if pr.get("high_52w"):
                 stats.append(("52주 최고", f"{pr['high_52w']:,.2f}"))
                 stats.append(("52주 최저", f"{pr['low_52w']:,.2f}"))
-            if D.get("shares_outstanding"):
+            if D.get("shares_outstanding") and not until:
                 stats.append(("발행주식수", f"{D['shares_outstanding'] / 1e8:,.1f}억주"))
             auto = {
                 "type": "line",
@@ -408,7 +456,9 @@ class DeckBuilder:
         else:
             scope, metric = src.split(".", 1)
             series = D[scope][metric]
-            keys = sorted(series, key=lambda k: series[k]["end"])[-int(c.get("n", 5 if scope == "annual" else 8)):]
+            until = str(c.get("until") or "9999")
+            keys = sorted([k for k in series if series[k]["end"] <= until],
+                          key=lambda k: series[k]["end"])[-int(c.get("n", 5 if scope == "annual" else 8)):]
             per_share = metric in ("eps_diluted", "eps_basic", "dps")
             shares = metric == "diluted_shares"
             scale = c.get("scale", 1 if per_share else 1e8)
@@ -937,17 +987,238 @@ class DeckBuilder:
         self.notes(s, sd.get("notes"))
         return s
 
+    # ================================================================ F/U(실적 리뷰) 양식
+    def stamp(self, slide, date: str):
+        """오른쪽 위 기준일 표기: (2026-05-10)."""
+        _, tf = text_box(slide, 9.9, TAB_Y + 0.05, 3.0, 0.38, name="기준일", anchor=MSO_ANCHOR.MIDDLE, margin=0)
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.RIGHT
+        r = p.add_run()
+        r.text = date if str(date).startswith("(") else f"({date})"
+        set_run_font(r, FONT_LIGHT, 16, WHITE)
+
+    def s_fu_cover(self, sd):
+        """F/U 표지: 주제에 맞는 배경 사진 전면 + 회사명(노랑) + 한 줄 후킹 문구 + 오른쪽 아래 작은 로고."""
+        s = self.new_slide(sd.get("bg", "342E7F"))
+        img = self.path(sd.get("image") or self.spec.get("fu_cover_image"))
+        if img:
+            add_fill_picture(s, img, 0, 0, SLIDE_W, SLIDE_H, name="배경")
+            dim = float(sd.get("dim", 0.35))     # 밝은 사진이면 검은 막을 덮어 글자를 살린다 (0=없음)
+            if dim > 0:
+                veil = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(SLIDE_W), Inches(SLIDE_H))
+                veil.name = "어둡게"
+                solid(veil, BLACK)
+                no_line(veil)
+                veil.shadow.inherit = False
+                clr = veil.fill._xPr.find(qn("a:solidFill")).find(qn("a:srgbClr"))
+                alpha = etree.SubElement(clr, qn("a:alpha"))
+                alpha.set("val", str(int(dim * 100000)))
+        name = sd.get("name") or self.spec.get("company", "")
+        hook = sd.get("hook", "")
+        name_pt = sd.get("name_size", 170)
+        name_pt = min(name_pt, name_pt * 11.4 / max(text_width(name, name_pt), 0.1))
+        hook_pt = sd.get("hook_size", 140)
+        plain = MARK_RE.sub(lambda m: m.group(0)[2:-2], hook)
+        hook_pt = min(hook_pt, hook_pt * 11.4 / max(text_width(plain, hook_pt) * 0.85, 0.1))
+        _, tf = text_box(s, 1.0, 0.45, 11.6, 6.5, name="제목", anchor=MSO_ANCHOR.MIDDLE)
+        p = tf.paragraphs[0]
+        r = p.add_run()
+        r.text = name
+        set_run_font(r, FONT_DISPLAY, name_pt, YELLOW)
+        add_glow(r)
+        if hook:
+            p = tf.add_paragraph()
+            p.space_before = Pt(name_pt * 0.35)
+            for tok in MARK_RE.split(hook):
+                if not tok:
+                    continue
+                big = tok.startswith("[[")
+                r = p.add_run()
+                r.text = tok[2:-2] if big else tok
+                set_run_font(r, FONT_DISPLAY, hook_pt if big else hook_pt * 0.7, YELLOW if big else WHITE)
+                add_glow(r)
+        icon = self.path(sd.get("logo_small") or self.spec.get("logo_small"))
+        if icon:
+            iw, ih = fit(icon, 0.9, 0.6)
+            s.shapes.add_picture(str(icon), Inches(SLIDE_W - 0.25 - iw), Inches(SLIDE_H - 0.25 - ih),
+                                 Inches(iw), Inches(ih)).name = "작은 로고"
+        self.notes(s, sd.get("notes"))
+        return s
+
+    def s_full_image(self, sd):
+        """사진 한 장을 화면 가득 (실적발표 자료 표지, 행사 사진, 제품 사진 등). 제목 탭은 선택."""
+        s = self.new_slide(sd.get("bg", BLACK))
+        img = self.path(sd.get("image"))
+        if img:
+            if sd.get("fit"):      # 자르지 않고 가운데 맞춤 (표·도표 이미지)
+                iw, ih = fit(img, SLIDE_W, SLIDE_H)
+                s.shapes.add_picture(str(img), Inches((SLIDE_W - iw) / 2), Inches((SLIDE_H - ih) / 2),
+                                     Inches(iw), Inches(ih))
+            else:
+                add_fill_picture(s, img, 0, 0, SLIDE_W, SLIDE_H, name="전면 사진")
+        if sd.get("tab"):          # 마지막 장처럼 흰 탭에 글자만 (로고 없음)
+            tw = text_width(sd["tab"], 24) + 0.6
+            tab = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, Inches(TAB_Y), Inches(tw), Inches(TAB_H))
+            solid(tab, WHITE)
+            no_line(tab)
+            tab.shadow.inherit = False
+            tf = tab.text_frame
+            tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+            p = tf.paragraphs[0]
+            p.alignment = PP_ALIGN.CENTER
+            r = p.add_run()
+            r.text = sd["tab"]
+            set_run_font(r, FONT_TITLE, 24, BLACK)
+        elif sd.get("title"):
+            self.title_tab(s, sd["title"])
+        if sd.get("source"):
+            self.caption(s, "출처: " + sd["source"])
+        self.notes(s, sd.get("notes"))
+        return s
+
+    def s_quote(self, sd):
+        """CEO 한마디: 오른쪽에 인물 사진(위아래 꽉), 왼쪽에 큰 따옴표 인용문. 핵심어 [[ ]]는 노랑·더 크게."""
+        s = self.new_slide()
+        img = self.path(sd.get("image"))
+        pw = sd.get("photo_width", 6.5)
+        if img:
+            add_fill_picture(s, img, SLIDE_W - pw, 0, pw, SLIDE_H, name="인물 사진")
+        lines = sd["quote"] if isinstance(sd["quote"], list) else [sd["quote"]]
+        tw = sd.get("text_width", 8.2)
+        size = sd.get("size", 40)
+        widest = max(text_width(MARK_RE.sub(lambda m: m.group(0)[2:-2], ln), size) * 1.08 + 0.6 for ln in lines)
+        if widest > tw:
+            size = max(26, int(size * tw / widest))
+        _, tf = text_box(s, 1.1, 0.9, tw, 5.4, name="인용문", anchor=MSO_ANCHOR.MIDDLE)
+        for i, ln in enumerate(lines):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            p.line_spacing = 1.05
+            text = ("“ " if i == 0 else "   ") + ln + (" ”" if i == len(lines) - 1 else "")
+            for tok in MARK_RE.split(text):
+                if not tok:
+                    continue
+                key = tok.startswith("[[")
+                r = p.add_run()
+                r.text = tok[2:-2] if key else tok
+                set_run_font(r, FONT_BODY, size * 1.2 if key else size, YELLOW if key else WHITE)
+                add_glow(r, rad_pt=6)
+        if sd.get("by"):
+            p = tf.add_paragraph()
+            p.space_before = Pt(18)
+            r = p.add_run()
+            r.text = "— " + sd["by"]
+            set_run_font(r, FONT_LIGHT, 18, "BFBFBF")
+            add_glow(r, rad_pt=6)
+        self.notes(s, sd.get("notes"))
+        return s
+
+    def s_guidance(self, sd):
+        """다음 분기 가이던스 차트: 최근 분기 실적 + 가이던스(살구색) 막대, 막대 사이 성장률(노랑),
+        막대 안 빨간 점 = 영업이익률, 초록 점 = EPS. 예시 덱 '2026-4분기 가이던스' 슬라이드 재현."""
+        s = self.new_slide()
+        self.title_tab(s, sd.get("title", "가이던스"))
+        q = [str(x) for x in sd["quarters"]]
+        vals = [float(v) for v in sd["revenue"]]
+        n = len(q)
+        rev_lab = sd.get("revenue_labels") or [f"{v:,.0f}" for v in vals]
+        growth = sd.get("growth") or []
+        margin = sd.get("margin") or []
+        eps = sd.get("eps") or []
+        guide = set(sd.get("guidance_index", [n - 1]))
+        leg = {"bar": "매출", "margin": "Non-GAAP 영업이익률", "eps": "Non-GAAP 희석 EPS", **(sd.get("legend") or {})}
+        # 범례 (위쪽 한 줄)
+        lx, ly = 1.3, 1.05
+        for col in (SKY, PEACH):
+            b = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(lx), Inches(ly + 0.1), Inches(0.5), Inches(0.17))
+            solid(b, col); no_line(b); b.shadow.inherit = False
+            lx += 0.58
+        items = [(None, leg["bar"], SKY)]
+        if margin:
+            items.append((METRIC_RED, leg["margin"], METRIC_RED))
+        if eps:
+            items.append((METRIC_GREEN, leg["eps"], METRIC_GREEN))
+        for dot, text, col in items:
+            if dot:
+                d = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(lx), Inches(ly + 0.1), Inches(0.18), Inches(0.18))
+                solid(d, dot); no_line(d); d.shadow.inherit = False
+                lx += 0.25
+            _, tf = text_box(s, lx, ly, text_width(text, 18) + 0.2, 0.38, wrap=False, margin=0)
+            r = tf.paragraphs[0].add_run(); r.text = text
+            set_run_font(r, FONT_BODY, 18, col)
+            lx += text_width(text, 18) + 0.55
+        # 막대
+        base_y, max_h, min_h = 6.0, 3.4, 1.75   # 가장 높은 막대 위 성장률·값 라벨이 범례와 겹치지 않게
+        x0, span = 1.2, 10.9
+        slot = span / n
+        bw = min(0.9, slot * 0.45)
+        vmax = max(vals)
+        lab_pt = 18
+        widest = max(text_width(t, lab_pt) for t in rev_lab + growth + q)
+        if widest > slot * 0.95:
+            lab_pt = max(11, int(lab_pt * slot * 0.95 / widest))
+        tops = []
+        for i, v in enumerate(vals):
+            h = max(min_h, max_h * v / vmax)
+            cx = x0 + slot * (i + 0.5)
+            top = base_y - h
+            tops.append(top)
+            col = PEACH if i in guide else SKY
+            b = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(cx - bw / 2), Inches(top), Inches(bw), Inches(h))
+            b.name = f"막대 {q[i]}"
+            solid(b, col); no_line(b); b.shadow.inherit = False
+            for txt, yy, colr, pt in ((rev_lab[i], top - 0.42, col, lab_pt), (q[i], base_y + 0.04, col, lab_pt)):
+                _, tf = text_box(s, cx - slot / 2, yy, slot, 0.38, wrap=False, margin=0)
+                p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
+                r = p.add_run(); r.text = txt
+                set_run_font(r, FONT_BODY, pt, colr)
+            # 막대 안 지표 점: 빨강(영업이익률) 위, 초록(EPS) 아래
+            dot_pt = min(16, lab_pt)
+            if i < len(margin) and margin[i]:
+                yy = top + 0.18
+                _, tf = text_box(s, cx - slot / 2, yy, slot, 0.32, wrap=False, margin=0)
+                p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
+                r = p.add_run(); r.text = str(margin[i]); set_run_font(r, FONT_BODY, dot_pt, METRIC_RED)
+                d = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(cx - 0.105), Inches(yy + 0.36), Inches(0.21), Inches(0.21))
+                solid(d, METRIC_RED); no_line(d); d.shadow.inherit = False
+            if i < len(eps) and eps[i]:
+                yy = top + 0.18 + (0.66 if margin else 0)
+                d = s.shapes.add_shape(MSO_SHAPE.OVAL, Inches(cx - 0.095), Inches(yy), Inches(0.19), Inches(0.17))
+                solid(d, METRIC_GREEN); no_line(d); d.shadow.inherit = False
+                lines = str(eps[i]).split("\n")
+                _, tf = text_box(s, cx - slot / 2, yy + 0.2, slot, 0.3 * len(lines) + 0.05, margin=0)
+                for k, ln in enumerate(lines):
+                    p = tf.paragraphs[0] if k == 0 else tf.add_paragraph()
+                    p.alignment = PP_ALIGN.CENTER
+                    r = p.add_run(); r.text = ln; set_run_font(r, FONT_BODY, dot_pt, METRIC_GREEN)
+        # 막대 사이 성장률 (노랑): 다음 막대 숫자 높이, 두 막대 사이 가운데
+        for i, g in enumerate(growth[: n - 1]):
+            if not g:
+                continue
+            cx = x0 + slot * (i + 1)
+            yy = min(tops[i], tops[i + 1]) - 0.88
+            _, tf = text_box(s, cx - slot / 2, yy, slot, 0.38, wrap=False, margin=0)
+            p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
+            r = p.add_run(); r.text = str(g); set_run_font(r, FONT_BODY, lab_pt, YELLOW)
+        if sd.get("source"):
+            self.caption(s, "출처: " + sd["source"])
+        self.notes(s, sd.get("notes"))
+        return s
+
     def build(self, out: Path):
         kinds = {"cover": self.s_cover, "section": self.s_section, "qa": self.s_qa,
-                 "segments": self.s_segments, "end": self.s_end}
+                 "segments": self.s_segments, "end": self.s_end,
+                 "fu_cover": self.s_fu_cover, "full_image": self.s_full_image,
+                 "quote": self.s_quote, "guidance": self.s_guidance}
         for i, sd in enumerate(self.spec["slides"], 1):
             fn = kinds.get(sd.get("type", "content"), self.s_content)
             try:
-                fn(sd)
+                slide = fn(sd)
+                if sd.get("date"):
+                    self.stamp(slide, sd["date"])
             except Exception as e:  # 어느 슬라이드에서 문제가 났는지 알려준다
                 raise SystemExit(f"슬라이드 {i} ({sd.get('title') or sd.get('type')}) 생성 실패: {e}")
         cp = self.prs.core_properties
-        cp.title = f"{self.spec.get('company', '')} 기업분석"
+        cp.title = self.spec.get("deck_title") or f"{self.spec.get('company', '')} 기업분석"
         cp.author = self.spec.get("author", "")
         out.parent.mkdir(parents=True, exist_ok=True)
         self.prs.save(out)
